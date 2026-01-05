@@ -29,12 +29,16 @@ Complete guide for setting up the PopsTracker dog collar system from scratch.
    - Insert 18650 battery (charged)
 
 2. **Connect ADXL345 Accelerometer**
+
+   **⚠️ CRITICAL: I2C uses GPIO 33/23, NOT GPIO 21/22!**
+   (GPIO 21/22 are used by the onboard L76K GPS)
+
    ```
    ADXL345  →  ESP32
    VCC      →  3.3V
    GND      →  GND
-   SDA      →  GPIO 33
-   SCL      →  GPIO 23
+   SDA      →  GPIO 33  (⚠️ NOT GPIO 21!)
+   SCL      →  GPIO 23  (⚠️ NOT GPIO 22!)
    CS       →  3.3V (for I2C mode)
    SDO      →  GND (for address 0x53)
    INT1     →  GPIO 32

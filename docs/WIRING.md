@@ -2,7 +2,8 @@
 
 Complete wiring instructions for the PopsTracker dog collar for **Popcorn**.
 
-> **Note**: This guide reflects YOUR actual wiring configuration with an external GPS module.
+> **CRITICAL NOTE**: This board uses the **ONBOARD L76K GPS** on GPIO 21/22.
+> Therefore, **I2C MUST use GPIO 33/23** instead of the standard 21/22!
 
 ---
 
@@ -13,39 +14,35 @@ Complete wiring instructions for the PopsTracker dog collar for **Popcorn**.
 │                    POPSTRACKER V7.0 - PIN CONFIGURATION                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  I2C BUS (OLED + ADXL345 Accelerometer):                                   │
-│  ───────────────────────────────────────                                    │
-│    GPIO 21 = I2C_SDA     (Data line - shared by OLED & ADXL345)            │
-│    GPIO 22 = I2C_SCL     (Clock line - shared by OLED & ADXL345)           │
-│    GPIO 32 = ADXL345_INT1 (Interrupt for shake-to-wake)                    │
+│  ⚠️ IMPORTANT: Onboard L76K GPS uses GPIO 21/22!                            │
+│  ⚠️ I2C MUST use alternative pins (GPIO 33/23)!                             │
 │                                                                             │
-│  GPS MODULE (External UART):                                                │
-│  ───────────────────────────                                                │
-│    GPIO 16 = GPS_RX      (ESP32 receives from GPS TX)                      │
-│    GPIO 17 = GPS_TX      (ESP32 sends to GPS RX)                           │
+│  GPS MODULE (L76K - ONBOARD):                                               │
+│  ────────────────────────────                                               │
+│    GPIO 21 = GPS_TX      (ESP32 receives from onboard GPS)                  │
+│    GPIO 22 = GPS_RX      (ESP32 sends to onboard GPS)                       │
 │                                                                             │
-│  CELLULAR MODEM (A7670G):                                                   │
-│  ────────────────────────                                                   │
-│    GPIO 26 = MODEM_TX    (ESP32 sends to Modem RX)                         │
-│    GPIO 27 = MODEM_RX    (ESP32 receives from Modem TX)                    │
-│    GPIO 4  = MODEM_PWRKEY (Wake/sleep modem)                               │
-│    GPIO 12 = BOARD_POWER_HOLD                                              │
+│  I2C BUS (ADXL345 Accelerometer):                                           │
+│  ─────────────────────────────────                                          │
+│    GPIO 33 = I2C_SDA     (⚠️ NOT GPIO 21 - conflicts with GPS!)            │
+│    GPIO 23 = I2C_SCL     (⚠️ NOT GPIO 22 - conflicts with GPS!)            │
+│    GPIO 32 = ADXL345_INT1 (Interrupt for shake-to-wake)                     │
 │                                                                             │
-│  MICROSD CARD (SPI):                                                        │
-│  ───────────────────                                                        │
-│    GPIO 13 = SD_CS       (Chip Select)                                     │
-│    GPIO 14 = SD_SCK      (SPI Clock)                                       │
-│    GPIO 15 = SD_MOSI     (Master Out Slave In)                             │
-│    GPIO 2  = SD_MISO     (Master In Slave Out) ⚠️ Strapping pin!           │
+│  CELLULAR MODEM (A7670G - ONBOARD):                                         │
+│  ──────────────────────────────────                                         │
+│    GPIO 26 = MODEM_TX    (ESP32 sends to Modem RX)                          │
+│    GPIO 27 = MODEM_RX    (ESP32 receives from Modem TX)                     │
+│    GPIO 4  = MODEM_PWRKEY (Wake/sleep modem)                                │
+│    GPIO 12 = BOARD_POWER_HOLD                                               │
 │                                                                             │
 │  OUTPUTS:                                                                   │
 │  ────────                                                                   │
-│    GPIO 19 = BUZZER_PIN  (Active HIGH)                                     │
-│    GPIO 25 = MOTOR_PIN   (Via transistor/MOSFET)                           │
+│    GPIO 19 = BUZZER_PIN  (Via transistor circuit)                           │
+│    GPIO 25 = MOTOR_PIN   (Via transistor + flyback diode)                   │
 │                                                                             │
 │  BATTERY MONITORING:                                                        │
 │  ───────────────────                                                        │
-│    GPIO 35 = BAT_ADC     (Voltage divider input)                           │
+│    GPIO 35 = BAT_ADC     (Voltage divider input)                            │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -54,72 +51,78 @@ Complete wiring instructions for the PopsTracker dog collar for **Popcorn**.
 
 ## Wiring Diagrams
 
-### 1. I2C Bus (OLED Display + ADXL345)
+### 1. I2C Bus (ADXL345 Accelerometer)
 
-Both the OLED display and ADXL345 accelerometer share the same I2C bus.
+**⚠️ CRITICAL: I2C uses GPIO 33/23, NOT GPIO 21/22!**
+
+The onboard L76K GPS uses GPIO 21/22, so I2C MUST use alternative pins.
 
 ```
                                 3.3V
                                  │
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
-              │                  │                  │
-    ┌─────────┴─────────┐  ┌─────┴─────┐  ┌─────────┴─────────┐
-    │     OLED          │  │  4.7K     │  │     ADXL345       │
-    │   (SSD1306)       │  │ Pull-ups  │  │   Accelerometer   │
-    │                   │  │ (if needed│  │                   │
-    │  VCC ──── 3.3V    │  │           │  │  VCC ──── 3.3V    │
-    │  GND ──── GND     │  │     │     │  │  GND ──── GND     │
-    │  SDA ────┐        │  │     │     │  │  SDA ────┐        │
-    │  SCL ────┼───┐    │  └─────┼─────┘  │  SCL ────┼───┐    │
-    └──────────┼───┼────┘        │        │  CS ───── 3.3V    │
-               │   │             │        │  SDO ──── GND     │
-               │   │             │        │  INT1 ───┐        │
-               │   │             │        └──────────┼────────┘
-               │   │             │                   │
-               │   │             │                   │
-               ▼   ▼             │                   ▼
+              ┌──────────────────┴──────────────────┐
+              │                                     │
+    ┌─────────┴─────────┐                 ┌─────────┴─────────┐
+    │     ADXL345       │                 │   4.7K Pull-ups   │
+    │   Accelerometer   │                 │   (if needed)     │
+    │                   │                 └─────────┬─────────┘
+    │  VCC ──── 3.3V    │                           │
+    │  GND ──── GND     │                           │
+    │  SDA ────┐        │                           │
+    │  SCL ────┼───┐    │                           │
+    │  CS ───── 3.3V    │  (enables I2C mode)       │
+    │  SDO ──── GND     │  (sets address 0x53)      │
+    │  INT1 ───┐        │                           │
+    └──────────┼───┼────┘                           │
+               │   │                                │
+               │   │                                │
+               ▼   ▼                                ▼
     ┌──────────────────────────────────────────────────────────┐
     │                   LILYGO T-A7670G R2                     │
     │                                                          │
-    │  GPIO 21 ●───────────────────── SDA Bus                  │
-    │  GPIO 22 ●───────────────────── SCL Bus                  │
+    │  ⚠️ GPIO 21/22 are used by onboard GPS - DO NOT USE!     │
+    │                                                          │
+    │  GPIO 33 ●───────────────────── I2C SDA (Data)           │
+    │  GPIO 23 ●───────────────────── I2C SCL (Clock)          │
     │  GPIO 32 ●───────────────────── ADXL345 INT1             │
     │                                                          │
     └──────────────────────────────────────────────────────────┘
 
-    I2C ADDRESSES:
-    ══════════════
-    • OLED (SSD1306): 0x3C or 0x3D
-    • ADXL345:        0x53 (SDO→GND) or 0x1D (SDO→VCC)
+    I2C ADDRESS:
+    ═════════════
+    • ADXL345: 0x53 (when SDO→GND)
 ```
 
-### 2. External GPS Module
+### 2. GPS Module (L76K - ONBOARD)
 
-Using external GPS on dedicated UART (not the built-in L76K).
+This board has a built-in L76K GPS module. No external GPS needed!
 
 ```
-    GPS MODULE                       LILYGO T-A7670G R2
-    (NEO-6M, etc.)                   ┌─────────────────┐
-    ┌───────────┐                    │                 │
-    │           │                    │                 │
-    │    VCC  ●─┼───── Red ──────────┼─● 3.3V          │
-    │           │                    │                 │
-    │    GND  ●─┼───── Black ────────┼─● GND           │
-    │           │                    │                 │
-    │    TX   ●─┼───── Green ────────┼─● GPIO 16 (RX)  │
-    │           │     (GPS TX →      │                 │
-    │           │      ESP32 RX)     │                 │
-    │    RX   ●─┼───── Yellow ───────┼─● GPIO 17 (TX)  │
-    │           │     (ESP32 TX →    │                 │
-    │           │      GPS RX)       │                 │
-    └───────────┘                    └─────────────────┘
+    ┌──────────────────────────────────────────────────────────┐
+    │                   LILYGO T-A7670G R2                     │
+    │                                                          │
+    │  ┌─────────────────────────────────────────────────┐     │
+    │  │              ONBOARD L76K GPS                   │     │
+    │  │                                                 │     │
+    │  │  The GPS is built into the board!              │     │
+    │  │  No external wiring needed.                    │     │
+    │  │                                                 │     │
+    │  │  Internal connections:                          │     │
+    │  │    GPIO 21 ← GPS TX (receive data FROM GPS)     │     │
+    │  │    GPIO 22 → GPS RX (send commands TO GPS)      │     │
+    │  │                                                 │     │
+    │  └─────────────────────────────────────────────────┘     │
+    │                                                          │
+    │  [GPS ANTENNA PORT] ← Connect GPS antenna here           │
+    │                                                          │
+    └──────────────────────────────────────────────────────────┘
 
     IMPORTANT:
     ══════════
-    • TX → RX (crossed connection, not straight!)
-    • GPS modules typically output at 9600 baud
-    • Make sure GPS has clear sky view for fix
+    • Connect the GPS antenna to the GPS ANT port
+    • GPS needs clear sky view for satellite fix
+    • First fix may take 2-5 minutes outdoors
+    • GPIO 21/22 are RESERVED for GPS - do not use for I2C!
 ```
 
 ### 3. Buzzer (GPIO 19)
@@ -263,21 +266,17 @@ Using a transistor or MOSFET to drive the motor.
 
 | Function | GPIO | Direction | Component |
 |----------|------|-----------|-----------|
-| I2C SDA | 21 | Bidirectional | OLED + ADXL345 |
-| I2C SCL | 22 | Output | OLED + ADXL345 |
+| **I2C SDA** | **33** | Bidirectional | **ADXL345 (⚠️ NOT 21!)** |
+| **I2C SCL** | **23** | Output | **ADXL345 (⚠️ NOT 22!)** |
 | ADXL345 INT1 | 32 | Input | Shake-to-wake interrupt |
-| GPS RX | 16 | Input | External GPS module TX |
-| GPS TX | 17 | Output | External GPS module RX |
+| **GPS TX** | **21** | Input | **Onboard L76K GPS (reserved!)** |
+| **GPS RX** | **22** | Output | **Onboard L76K GPS (reserved!)** |
 | Modem TX | 26 | Output | A7670G modem RX |
 | Modem RX | 27 | Input | A7670G modem TX |
 | Modem PWR | 4 | Output | Wake/sleep modem |
 | Power Hold | 12 | Output | Board power control |
-| SD CS | 13 | Output | SD card chip select |
-| SD SCK | 14 | Output | SD card clock |
-| SD MOSI | 15 | Output | SD card data out |
-| SD MISO | 2 | Input | SD card data in |
-| Buzzer | 19 | Output | Alert sounds |
-| Motor | 25 | Output | Vibration feedback |
+| Buzzer | 19 | Output | Alert sounds (via transistor) |
+| Motor | 25 | Output | Vibration feedback (via transistor) |
 | Battery ADC | 35 | Input | Voltage monitoring |
 
 ### Complete Schematic
@@ -374,15 +373,16 @@ Using a transistor or MOSFET to drive the motor.
 - [ ] LTE antenna
 
 ### Wiring Verification
-- [ ] OLED: VCC→3.3V, GND→GND, SDA→G21, SCL→G22
-- [ ] ADXL345: VCC→3.3V, GND→GND, SDA→G21, SCL→G22, CS→3.3V, SDO→GND, INT1→G32
-- [ ] GPS: VCC→3.3V, GND→GND, TX→G16, RX→G17
-- [ ] SD Card: 3V3→3.3V, GND→GND, CS→G13, SCK→G14, MOSI→G15, MISO→G2
-- [ ] Buzzer: Circuit connected to G19
-- [ ] Motor: Circuit connected to G25
-- [ ] Battery divider: Output to G35
-- [ ] SIM card inserted
-- [ ] Antennas connected
+
+**⚠️ CRITICAL: I2C uses GPIO 33/23, NOT GPIO 21/22!**
+
+- [ ] ADXL345: VCC→3.3V, GND→GND, **SDA→GPIO 33**, **SCL→GPIO 23**, CS→3.3V, SDO→GND, INT1→G32
+- [ ] Buzzer: Transistor circuit connected to GPIO 19
+- [ ] Motor: Transistor circuit + flyback diode connected to GPIO 25
+- [ ] GPS Antenna connected to GPS ANT port
+- [ ] LTE Antenna connected to LTE ANT port
+- [ ] SIM card inserted (Nano SIM, chip facing down)
+- [ ] 18650 Battery inserted (correct polarity)
 
 ---
 
