@@ -1,0 +1,37 @@
+{
+  "name": "popstracker-backend",
+  "version": "1.0.0",
+  "description": "Backend API for PopsTracker Dog Collar GPS & Activity Tracker",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "dog",
+    "tracker",
+    "gps",
+    "pet",
+    "walker",
+    "accountability"
+  ],
+  "author": "PopsTracker Team",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "mongoose": "^8.0.3",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.6.1",
+    "web-push": "^3.6.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

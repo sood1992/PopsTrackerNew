@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongo:27017/popstracker
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    networks:
+      - popstracker-network
+
+  # MongoDB Database
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - popstracker-network
+
+  # Frontend (optional - can also be served by backend)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - popstracker-network
+
+volumes:
+  mongo-data:
+
+networks:
+  popstracker-network:
+    driver: bridge

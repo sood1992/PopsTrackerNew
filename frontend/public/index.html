@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PopsTracker - Popcorn's Tracker</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Socket.io -->
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: #4ade80;
+            color: #166534;
+        }
+
+        .status-offline {
+            background: #f87171;
+            color: #991b1b;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            height: calc(100vh - 60px);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                height: 50vh;
+                z-index: 1000;
+                transform: translateY(calc(100% - 60px));
+                transition: transform 0.3s ease;
+            }
+            .sidebar.open {
+                transform: translateY(0);
+            }
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .sidebar {
+            background: white;
+            overflow-y: auto;
+            border-left: 1px solid #e5e5e5;
+        }
+
+        .sidebar-section {
+            padding: 1rem;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .sidebar-section h3 {
+            font-size: 0.9rem;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #666;
+        }
+
+        /* Walk Grade */
+        .grade-display {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .grade-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .grade-A { background: #22c55e; }
+        .grade-B { background: #84cc16; }
+        .grade-C { background: #eab308; }
+        .grade-F { background: #ef4444; }
+
+        .grade-details {
+            flex: 1;
+        }
+
+        .grade-details h4 {
+            margin-bottom: 0.25rem;
+        }
+
+        .grade-details p {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        /* Activity Level */
+        .activity-bar {
+            height: 8px;
+            background: #e5e5e5;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .activity-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .activity-resting { background: #94a3b8; }
+        .activity-light { background: #22c55e; }
+        .activity-active { background: #3b82f6; }
+        .activity-very-active { background: #8b5cf6; }
+
+        /* Walk History */
+        .walk-list {
+            list-style: none;
+        }
+
+        .walk-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .walk-item:hover {
+            background: #e5e7eb;
+        }
+
+        .walk-grade {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+            margin-right: 0.75rem;
+        }
+
+        .walk-info {
+            flex: 1;
+        }
+
+        .walk-info .time {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .walk-info .stats {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .walk-warning {
+            color: #ef4444;
+            font-size: 0.75rem;
+        }
+
+        /* Alerts */
+        .alert-item {
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+
+        .alert-warning {
+            background: #fef3c7;
+            border-left: 3px solid #f59e0b;
+        }
+
+        .alert-critical {
+            background: #fee2e2;
+            border-left: 3px solid #ef4444;
+        }
+
+        .alert-info {
+            background: #e0f2fe;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .alert-icon {
+            font-size: 1.25rem;
+        }
+
+        .alert-content {
+            flex: 1;
+        }
+
+        .alert-content .message {
+            font-size: 0.9rem;
+        }
+
+        .alert-content .time {
+            font-size: 0.75rem;
+            color: #666;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd6;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Device Info */
+        .device-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+
+        .info-label {
+            color: #666;
+        }
+
+        .battery-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .battery-bar {
+            width: 24px;
+            height: 12px;
+            border: 2px solid #333;
+            border-radius: 2px;
+            position: relative;
+        }
+
+        .battery-bar::after {
+            content: '';
+            position: absolute;
+            right: -4px;
+            top: 2px;
+            width: 2px;
+            height: 6px;
+            background: #333;
+            border-radius: 0 1px 1px 0;
+        }
+
+        .battery-level {
+            height: 100%;
+            background: #22c55e;
+            transition: width 0.3s;
+        }
+
+        .battery-low .battery-level {
+            background: #ef4444;
+        }
+
+        /* Map Controls */
+        .map-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .map-controls button {
+            padding: 0.75rem 1rem;
+            background: white;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .map-controls button:hover {
+            background: #f5f5f5;
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e5e5e5;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <header>
+        <h1>
+            <span>🐕</span>
+            <span>Popcorn's Tracker</span>
+        </h1>
+        <div>
+            <span class="status-badge status-offline" id="connection-status">Connecting...</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="map"></div>
+
+        <div class="sidebar" id="sidebar">
+            <!-- Current Walk / Status -->
+            <div class="sidebar-section">
+                <h3>Current Status</h3>
+                <div id="walk-status">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-steps">0</div>
+                            <div class="stat-label">Steps Today</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-active">0</div>
+                            <div class="stat-label">Active Min</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-distance">0</div>
+                            <div class="stat-label">Distance (m)</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-speed">0</div>
+                            <div class="stat-label">Speed (km/h)</div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1rem;">
+                        <div class="info-row">
+                            <span class="info-label">Activity Level</span>
+                            <span id="activity-level">Resting</span>
+                        </div>
+                        <div class="activity-bar">
+                            <div class="activity-fill activity-resting" id="activity-bar" style="width: 25%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Walk Grade -->
+            <div class="sidebar-section" id="current-walk-section" style="display: none;">
+                <h3>Walk In Progress</h3>
+                <div class="grade-display">
+                    <div class="grade-circle grade-B" id="current-grade">B</div>
+                    <div class="grade-details">
+                        <h4 id="walk-duration">12 minutes</h4>
+                        <p id="walk-active-percent">Active: 65%</p>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-danger" onclick="endWalk()">End Walk</button>
+                </div>
+            </div>
+
+            <!-- Walker Report Card -->
+            <div class="sidebar-section">
+                <h3>Walker Report Card</h3>
+                <div class="grade-display">
+                    <div class="grade-circle grade-B" id="overall-grade">B</div>
+                    <div class="grade-details">
+                        <h4>Good Performance</h4>
+                        <p id="walker-stats">15 walks this week | Avg 25 min</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Walks -->
+            <div class="sidebar-section">
+                <h3>Recent Walks</h3>
+                <ul class="walk-list" id="walk-list">
+                    <li class="walk-item">
+                        <div class="walk-grade grade-A">A</div>
+                        <div class="walk-info">
+                            <div class="time">Today, 10:30 AM</div>
+                            <div class="stats">32 min | 1.2 km | 2,400 steps</div>
+                        </div>
+                    </li>
+                    <li class="walk-item">
+                        <div class="walk-grade grade-F">F</div>
+                        <div class="walk-info">
+                            <div class="time">Yesterday, 3:00 PM</div>
+                            <div class="stats">45 min | 0.3 km | 400 steps</div>
+                            <div class="walk-warning">Dog was carried!</div>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Alerts -->
+            <div class="sidebar-section">
+                <h3>Alerts</h3>
+                <div id="alerts-container">
+                    <div class="alert-item alert-warning">
+                        <span class="alert-icon">⚠️</span>
+                        <div class="alert-content">
+                            <div class="message">Dog was carried during walk</div>
+                            <div class="time">Yesterday at 3:15 PM</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device Info -->
+            <div class="sidebar-section">
+                <h3>Device</h3>
+                <div class="device-info">
+                    <div class="info-row">
+                        <span class="info-label">Battery</span>
+                        <div class="battery-indicator">
+                            <div class="battery-bar" id="battery-bar">
+                                <div class="battery-level" id="battery-level" style="width: 75%"></div>
+                            </div>
+                            <span id="battery-percent">75%</span>
+                        </div>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Signal</span>
+                        <span id="signal-strength">Good</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">GPS</span>
+                        <span id="gps-status">8 satellites</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Last Update</span>
+                        <span id="last-update">Just now</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="sidebar-section">
+                <h3>Actions</h3>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="findDog()">🔔 Find Popcorn</button>
+                    <button class="btn btn-primary" onclick="centerMap()">📍 Center Map</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Controls -->
+        <div class="map-controls">
+            <button onclick="toggleTracking()">
+                <span id="tracking-icon">📍</span>
+                <span id="tracking-text">Live Tracking</span>
+            </button>
+            <button onclick="showRoute()">
+                <span>🛣️</span>
+                <span>Show Route</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            deviceId: 'POPCORN_001',
+            serverUrl: window.location.hostname === 'localhost'
+                ? 'http://localhost:3000'
+                : window.location.origin,
+            mapCenter: [28.6139, 77.2090],  // Default: New Delhi
+            mapZoom: 15
+        };
+
+        // State
+        let map;
+        let dogMarker;
+        let homeMarker;
+        let routePath;
+        let socket;
+        let isTracking = true;
+        let currentPosition = null;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView(CONFIG.mapCenter, CONFIG.mapZoom);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Custom dog icon
+            const dogIcon = L.divIcon({
+                html: '<div style="font-size: 30px; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3));">🐕</div>',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20],
+                className: 'dog-marker'
+            });
+
+            // Home icon
+            const homeIcon = L.divIcon({
+                html: '<div style="font-size: 24px;">🏠</div>',
+                iconSize: [30, 30],
+                iconAnchor: [15, 15],
+                className: 'home-marker'
+            });
+
+            // Add markers
+            dogMarker = L.marker(CONFIG.mapCenter, { icon: dogIcon }).addTo(map);
+            dogMarker.bindPopup('<b>Popcorn</b><br>Last seen: Just now');
+
+            // Route path
+            routePath = L.polyline([], {
+                color: '#667eea',
+                weight: 4,
+                opacity: 0.7
+            }).addTo(map);
+        }
+
+        // Initialize Socket.io
+        function initSocket() {
+            socket = io(CONFIG.serverUrl);
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                document.getElementById('connection-status').textContent = 'Online';
+                document.getElementById('connection-status').className = 'status-badge status-online';
+
+                // Subscribe to device updates
+                socket.emit('subscribe', CONFIG.deviceId);
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                document.getElementById('connection-status').textContent = 'Offline';
+                document.getElementById('connection-status').className = 'status-badge status-offline';
+            });
+
+            // Location updates
+            socket.on('location', (data) => {
+                updateLocation(data);
+            });
+
+            // Heartbeat updates
+            socket.on('heartbeat', (data) => {
+                updateDeviceStatus(data);
+            });
+
+            // Walk completed
+            socket.on('walkCompleted', (data) => {
+                showWalkComplete(data);
+                loadRecentWalks();
+            });
+
+            // Alerts
+            socket.on('alert', (data) => {
+                showAlert(data);
+            });
+        }
+
+        // Update location on map
+        function updateLocation(data) {
+            const { lat, lon, speed, activity, timestamp } = data;
+            currentPosition = [lat, lon];
+
+            if (dogMarker) {
+                dogMarker.setLatLng(currentPosition);
+
+                if (isTracking) {
+                    map.panTo(currentPosition);
+                }
+
+                // Update popup
+                dogMarker.setPopupContent(
+                    `<b>Popcorn</b><br>` +
+                    `Speed: ${speed.toFixed(1)} km/h<br>` +
+                    `Updated: ${new Date(timestamp).toLocaleTimeString()}`
+                );
+            }
+
+            // Add to route path
+            if (document.getElementById('current-walk-section').style.display !== 'none') {
+                routePath.addLatLng(currentPosition);
+            }
+
+            // Update stats
+            document.getElementById('stat-speed').textContent = speed.toFixed(1);
+            document.getElementById('last-update').textContent = 'Just now';
+
+            // Update activity level
+            const levels = ['Resting', 'Light', 'Active', 'Very Active'];
+            const colors = ['activity-resting', 'activity-light', 'activity-active', 'activity-very-active'];
+            const widths = ['25%', '50%', '75%', '100%'];
+
+            document.getElementById('activity-level').textContent = levels[activity] || 'Unknown';
+            const activityBar = document.getElementById('activity-bar');
+            activityBar.className = 'activity-fill ' + (colors[activity] || colors[0]);
+            activityBar.style.width = widths[activity] || widths[0];
+        }
+
+        // Update device status
+        function updateDeviceStatus(data) {
+            const { batteryPercent, signalStrength, gpsConnected } = data;
+
+            document.getElementById('battery-percent').textContent = batteryPercent + '%';
+            document.getElementById('battery-level').style.width = batteryPercent + '%';
+
+            if (batteryPercent < 20) {
+                document.getElementById('battery-bar').classList.add('battery-low');
+            } else {
+                document.getElementById('battery-bar').classList.remove('battery-low');
+            }
+
+            // Signal strength
+            let signalText = 'Poor';
+            if (signalStrength > 20) signalText = 'Excellent';
+            else if (signalStrength > 15) signalText = 'Good';
+            else if (signalStrength > 10) signalText = 'Fair';
+            document.getElementById('signal-strength').textContent = signalText;
+        }
+
+        // Show walk complete notification
+        function showWalkComplete(data) {
+            const { grade, duration, distance, activePercent, wasCarried, wasInVehicle } = data;
+
+            let message = `Walk completed with grade ${grade}!\n`;
+            message += `Duration: ${Math.round(duration/60)} min | Distance: ${distance}m\n`;
+            message += `Active: ${activePercent.toFixed(0)}%`;
+
+            if (wasCarried) message += '\n⚠️ Dog was carried!';
+            if (wasInVehicle) message += '\n⚠️ Dog was in vehicle!';
+
+            alert(message);  // Replace with nicer notification
+
+            // Hide current walk section
+            document.getElementById('current-walk-section').style.display = 'none';
+            routePath.setLatLngs([]);
+        }
+
+        // Show alert
+        function showAlert(data) {
+            const container = document.getElementById('alerts-container');
+            const severityClass = {
+                'info': 'alert-info',
+                'warning': 'alert-warning',
+                'critical': 'alert-critical'
+            };
+
+            const alertHtml = `
+                <div class="alert-item ${severityClass[data.severity] || 'alert-info'}">
+                    <span class="alert-icon">${data.severity === 'critical' ? '🚨' : '⚠️'}</span>
+                    <div class="alert-content">
+                        <div class="message">${data.message}</div>
+                        <div class="time">${new Date().toLocaleTimeString()}</div>
+                    </div>
+                </div>
+            `;
+
+            container.insertAdjacentHTML('afterbegin', alertHtml);
+        }
+
+        // Load recent walks
+        async function loadRecentWalks() {
+            try {
+                const response = await fetch(`${CONFIG.serverUrl}/api/v1/walk/${CONFIG.deviceId}?limit=5`);
+                const walks = await response.json();
+
+                const walkList = document.getElementById('walk-list');
+                walkList.innerHTML = walks.map(walk => `
+                    <li class="walk-item" onclick="showWalkRoute('${walk._id}')">
+                        <div class="walk-grade grade-${walk.grade}">${walk.grade}</div>
+                        <div class="walk-info">
+                            <div class="time">${formatDate(walk.startTime)}</div>
+                            <div class="stats">${Math.round(walk.duration/60)} min | ${walk.distanceMeters}m | ${walk.steps} steps</div>
+                            ${walk.wasCarried ? '<div class="walk-warning">Dog was carried!</div>' : ''}
+                            ${walk.wasInVehicle ? '<div class="walk-warning">Dog was in vehicle!</div>' : ''}
+                        </div>
+                    </li>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load walks:', error);
+            }
+        }
+
+        // Load weekly stats
+        async function loadWeeklyStats() {
+            try {
+                const response = await fetch(`${CONFIG.serverUrl}/api/v1/walk/${CONFIG.deviceId}/weekly-summary`);
+                const stats = await response.json();
+
+                document.getElementById('overall-grade').textContent = stats.overallGrade;
+                document.getElementById('overall-grade').className = `grade-circle grade-${stats.overallGrade}`;
+                document.getElementById('walker-stats').textContent =
+                    `${stats.totalWalks} walks this week | Avg ${stats.avgWalkDuration} min`;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        // Show walk route on map
+        async function showWalkRoute(walkId) {
+            try {
+                const response = await fetch(`${CONFIG.serverUrl}/api/v1/walk/${walkId}/route`);
+                const locations = await response.json();
+
+                const points = locations.map(loc => [
+                    loc.location.coordinates[1],
+                    loc.location.coordinates[0]
+                ]);
+
+                routePath.setLatLngs(points);
+
+                if (points.length > 0) {
+                    map.fitBounds(routePath.getBounds(), { padding: [50, 50] });
+                }
+            } catch (error) {
+                console.error('Failed to load route:', error);
+            }
+        }
+
+        // Actions
+        function findDog() {
+            socket.emit('findDog', CONFIG.deviceId);
+            alert('Buzzer activated on collar!');
+        }
+
+        function centerMap() {
+            if (currentPosition) {
+                map.panTo(currentPosition);
+            }
+        }
+
+        function toggleTracking() {
+            isTracking = !isTracking;
+            document.getElementById('tracking-text').textContent =
+                isTracking ? 'Live Tracking' : 'Tracking Paused';
+            document.getElementById('tracking-icon').textContent =
+                isTracking ? '📍' : '⏸️';
+        }
+
+        function showRoute() {
+            loadRecentWalks();
+        }
+
+        function endWalk() {
+            socket.emit('endWalk', CONFIG.deviceId);
+        }
+
+        // Utility functions
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const today = new Date();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            if (date.toDateString() === today.toDateString()) {
+                return 'Today, ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else if (date.toDateString() === yesterday.toDateString()) {
+                return 'Yesterday, ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else {
+                return date.toLocaleDateString() + ', ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            initSocket();
+            loadRecentWalks();
+            loadWeeklyStats();
+
+            // Hide loading overlay
+            document.getElementById('loading').classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
