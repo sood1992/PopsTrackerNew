@@ -23,7 +23,7 @@
 // ============================================================================
 // SERVER CONFIGURATION
 // ============================================================================
-#define SERVER_HOST         "your-server.com"    // Replace with your server
+#define SERVER_HOST         "popcorn.up.railway.app"
 #define SERVER_PORT         443
 #define SERVER_PATH         "/api/v1/tracking"
 #define USE_HTTPS           true
