@@ -374,32 +374,82 @@ String CellularModule::getICCID() {
     return modem.getSimCCID();
 }
 
+// Time synchronization variables
+static uint32_t bootUnixTime = 0;  // Unix time at boot
+static uint32_t bootMillis = 0;     // millis() at time sync
+
 bool CellularModule::syncTime() {
     if (!modemReady) return false;
 
     // Enable network time sync
     modemSerial->println("AT+CTZU=1");
-    delay(100);
+    delay(1000);
 
-    return true;
-}
-
-uint32_t CellularModule::getNetworkTime() {
-    // Get time from modem (returns UTC)
-    // AT+CCLK? returns: "+CCLK: \"YY/MM/DD,HH:MM:SS+TZ\""
-    // This is a simplified implementation
-
+    // Get the current network time
     modemSerial->println("AT+CCLK?");
     delay(500);
 
     String response = "";
-    while (modemSerial->available()) {
-        response += (char)modemSerial->read();
+    unsigned long timeout = millis() + 2000;
+    while (millis() < timeout) {
+        while (modemSerial->available()) {
+            response += (char)modemSerial->read();
+        }
+        if (response.indexOf("+CCLK:") >= 0) break;
     }
 
-    // Parse response and convert to Unix timestamp
-    // For now, just return millis as a placeholder
-    return millis();
+    // Parse response: +CCLK: "YY/MM/DD,HH:MM:SS+TZ"
+    int start = response.indexOf("\"");
+    int end = response.lastIndexOf("\"");
+    if (start >= 0 && end > start) {
+        String timeStr = response.substring(start + 1, end);
+        // Parse: "24/12/15,10:30:00+22"
+        int year = 2000 + timeStr.substring(0, 2).toInt();
+        int month = timeStr.substring(3, 5).toInt();
+        int day = timeStr.substring(6, 8).toInt();
+        int hour = timeStr.substring(9, 11).toInt();
+        int minute = timeStr.substring(12, 14).toInt();
+        int second = timeStr.substring(15, 17).toInt();
+
+        // Convert to Unix timestamp (simplified - doesn't account for leap years perfectly)
+        uint32_t unixTime = 0;
+        // Days since 1970
+        for (int y = 1970; y < year; y++) {
+            unixTime += (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 366 : 365;
+        }
+        static const int daysInMonth[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+        unixTime += daysInMonth[month - 1];
+        if (month > 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) {
+            unixTime += 1;  // Leap year
+        }
+        unixTime += day - 1;
+        unixTime = unixTime * 86400 + hour * 3600 + minute * 60 + second;
+
+        bootUnixTime = unixTime;
+        bootMillis = millis();
+
+        DEBUG_PRINTF("Time synced: %04d-%02d-%02d %02d:%02d:%02d (Unix: %u)\n",
+                     year, month, day, hour, minute, second, unixTime);
+        return true;
+    }
+
+    DEBUG_PRINTLN("Failed to parse network time");
+    return false;
+}
+
+uint32_t CellularModule::getNetworkTime() {
+    // Return Unix timestamp based on synced time + elapsed millis
+    if (bootUnixTime == 0) {
+        // Not synced yet, try to sync
+        syncTime();
+    }
+
+    if (bootUnixTime > 0) {
+        return bootUnixTime + ((millis() - bootMillis) / 1000);
+    }
+
+    // Fallback: return millis-based time (will be wrong but at least unique)
+    return millis() / 1000;
 }
 
 String CellularModule::buildJSON(GPSData& gps, ActivityData& activity) {
@@ -407,7 +457,7 @@ String CellularModule::buildJSON(GPSData& gps, ActivityData& activity) {
 
     doc["device_id"] = DEVICE_ID;
     doc["dog_name"] = DOG_NAME;
-    doc["timestamp"] = millis();
+    doc["timestamp"] = getNetworkTime() * 1000UL;  // Send as milliseconds for JS Date compatibility
 
     // GPS data
     JsonObject location = doc["location"].to<JsonObject>();
@@ -440,8 +490,16 @@ String CellularModule::buildWalkJSON(WalkSession& walk) {
     doc["dog_name"] = DOG_NAME;
     doc["walk_id"] = walk.walkId;
 
-    doc["start_time"] = walk.startTime;
-    doc["end_time"] = walk.endTime;
+    // Convert millis-based timestamps to Unix timestamps in milliseconds
+    uint32_t currentUnixMs = getNetworkTime() * 1000UL;
+    uint32_t currentMillis = millis();
+
+    // Calculate Unix time for start and end based on elapsed time
+    uint32_t startUnixMs = currentUnixMs - (currentMillis - walk.startTime);
+    uint32_t endUnixMs = currentUnixMs - (currentMillis - walk.endTime);
+
+    doc["start_time"] = startUnixMs;
+    doc["end_time"] = endUnixMs;
     doc["duration_seconds"] = walk.duration;
 
     doc["distance_meters"] = walk.distanceMeters;
@@ -487,7 +545,7 @@ String CellularModule::buildStatusJSON(DeviceStatus& status) {
 
     doc["device_id"] = DEVICE_ID;
     doc["firmware_version"] = FIRMWARE_VERSION;
-    doc["timestamp"] = millis();
+    doc["timestamp"] = getNetworkTime() * 1000UL;  // Send as milliseconds for JS Date compatibility
 
     doc["battery_voltage"] = status.batteryVoltage;
     doc["battery_percent"] = status.batteryPercent;

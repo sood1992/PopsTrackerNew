@@ -105,27 +105,52 @@ router.get('/:deviceId/history', async (req, res) => {
 });
 
 // GET /api/v1/location/:deviceId/live - SSE for live updates
+// Note: This is an alternative to Socket.io for clients that don't support WebSockets
 router.get('/:deviceId/live', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
 
     const deviceId = req.params.deviceId;
 
     // Send initial connection message
     res.write(`data: ${JSON.stringify({ type: 'connected', deviceId })}\n\n`);
 
-    // Listen for location updates
-    const io = req.app.get('io');
-    const handler = (data) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
+    // Keep-alive heartbeat
+    const heartbeatInterval = setInterval(() => {
+        res.write(': heartbeat\n\n');
+    }, 30000);
 
-    io.on(`location:${deviceId}`, handler);
+    // Poll database for new locations every 5 seconds
+    // This is a fallback for SSE; Socket.io is preferred for real-time
+    let lastTimestamp = new Date();
+    const pollInterval = setInterval(async () => {
+        try {
+            const newLocation = await Location.findOne({
+                deviceId,
+                timestamp: { $gt: lastTimestamp }
+            }).sort({ timestamp: -1 });
+
+            if (newLocation) {
+                lastTimestamp = newLocation.timestamp;
+                res.write(`data: ${JSON.stringify({
+                    lat: newLocation.location.coordinates[1],
+                    lon: newLocation.location.coordinates[0],
+                    speed: newLocation.speed,
+                    activity: newLocation.activity?.level,
+                    timestamp: newLocation.timestamp
+                })}\n\n`);
+            }
+        } catch (error) {
+            console.error('SSE poll error:', error);
+        }
+    }, 5000);
 
     // Clean up on disconnect
     req.on('close', () => {
-        io.off(`location:${deviceId}`, handler);
+        clearInterval(heartbeatInterval);
+        clearInterval(pollInterval);
     });
 });
 

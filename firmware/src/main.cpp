@@ -64,6 +64,8 @@ void handleSerialCommands();
 void buzzerBeep(int onMs, int offMs, int count);
 void motorVibrate(int onMs, int offMs, int count);
 void printStatus();
+void findMyDog();
+void checkChargingStatus();
 
 // ============================================================================
 // SETUP
@@ -344,6 +346,62 @@ void handleAlerts() {
             lastLowBatAlert = millis();
         }
     }
+
+    // Geofence alert - dog left home zone (when not on walk)
+    static bool leftHomeAlertSent = false;
+    if (!walkTracker.isWalkInProgress() && gpsData.valid) {
+        bool isOutside = gpsModule.isOutsideHomeZone();
+        if (isOutside && !leftHomeAlertSent) {
+            Serial.println("ALERT: Dog left home zone!");
+            cellular.sendAlert("GEOFENCE", "Dog has left the home zone without a walk being started");
+            buzzerBeep(200, 100, 3);
+            leftHomeAlertSent = true;
+        } else if (!isOutside) {
+            leftHomeAlertSent = false;
+        }
+    }
+}
+
+// Find My Dog - activate buzzer and vibration
+void findMyDog() {
+    Serial.println("FIND MY DOG activated!");
+
+    // Play SOS pattern - attention-grabbing sequence
+    for (int round = 0; round < 3; round++) {
+        // Short beeps (S)
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(BUZZER_PIN, HIGH);
+            digitalWrite(MOTOR_PIN, HIGH);
+            delay(100);
+            digitalWrite(BUZZER_PIN, LOW);
+            digitalWrite(MOTOR_PIN, LOW);
+            delay(100);
+        }
+        delay(200);
+
+        // Long beeps (O)
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(BUZZER_PIN, HIGH);
+            digitalWrite(MOTOR_PIN, HIGH);
+            delay(300);
+            digitalWrite(BUZZER_PIN, LOW);
+            digitalWrite(MOTOR_PIN, LOW);
+            delay(100);
+        }
+        delay(200);
+
+        // Short beeps (S)
+        for (int i = 0; i < 3; i++) {
+            digitalWrite(BUZZER_PIN, HIGH);
+            digitalWrite(MOTOR_PIN, HIGH);
+            delay(100);
+            digitalWrite(BUZZER_PIN, LOW);
+            digitalWrite(MOTOR_PIN, LOW);
+            delay(100);
+        }
+
+        delay(500);  // Pause between rounds
+    }
 }
 
 void updateBattery() {
@@ -358,6 +416,27 @@ void updateBattery() {
     // Convert to voltage (assuming 50% voltage divider)
     // ADC is 12-bit (0-4095) for 0-3.3V
     float voltage = rawValue * 2.0 * 3.3 / 4095.0;
+
+    // Detect charging: voltage rising significantly or above 4.15V
+    static float lastVoltage = 0;
+    static uint32_t voltageRiseCount = 0;
+
+    if (voltage > lastVoltage + 0.02 && voltage > 3.5) {
+        voltageRiseCount++;
+        if (voltageRiseCount > 5) {  // Consistent rise over 5 samples
+            deviceStatus.isCharging = true;
+        }
+    } else if (voltage < lastVoltage - 0.01 || voltage < 3.5) {
+        voltageRiseCount = 0;
+        deviceStatus.isCharging = false;
+    }
+
+    // Definitely charging if voltage > 4.15V (above normal full charge)
+    if (voltage > 4.15) {
+        deviceStatus.isCharging = true;
+    }
+
+    lastVoltage = voltage;
     deviceStatus.batteryVoltage = voltage;
 
     // Calculate percentage (linear approximation)
@@ -366,6 +445,18 @@ void updateBattery() {
     if (percent > 100) percent = 100;
     if (percent < 0) percent = 0;
     deviceStatus.batteryPercent = (uint8_t)percent;
+
+    // Log charging status changes
+    static bool wasCharging = false;
+    if (deviceStatus.isCharging != wasCharging) {
+        if (deviceStatus.isCharging) {
+            Serial.println("Battery: Now charging");
+            buzzerBeep(100, 50, 2);
+        } else {
+            Serial.println("Battery: Stopped charging");
+        }
+        wasCharging = deviceStatus.isCharging;
+    }
 }
 
 void enterSleepMode() {
@@ -448,6 +539,12 @@ void handleSerialCommands() {
         }
     } else if (cmd == "reset") {
         ESP.restart();
+    } else if (cmd == "finddog" || cmd == "find") {
+        findMyDog();
+    } else if (cmd == "battery") {
+        Serial.printf("Battery: %.2fV (%d%%) | Charging: %s\n",
+                      deviceStatus.batteryVoltage, deviceStatus.batteryPercent,
+                      deviceStatus.isCharging ? "Yes" : "No");
     } else if (cmd == "help") {
         Serial.println("Commands:");
         Serial.println("  status    - Show device status");
@@ -459,6 +556,8 @@ void handleSerialCommands() {
         Serial.println("  beep      - Test buzzer");
         Serial.println("  vibrate   - Test motor");
         Serial.println("  sethome   - Set current location as home");
+        Serial.println("  finddog   - Activate Find My Dog (buzzer/vibrate)");
+        Serial.println("  battery   - Show battery status");
         Serial.println("  reset     - Restart device");
     }
 }
@@ -469,8 +568,9 @@ void printStatus() {
     Serial.println("├─────────────────────────────────────────┤");
 
     // Battery
-    Serial.printf("│ Battery: %.2fV (%d%%)                   \n",
-                  deviceStatus.batteryVoltage, deviceStatus.batteryPercent);
+    Serial.printf("│ Battery: %.2fV (%d%%) %s            \n",
+                  deviceStatus.batteryVoltage, deviceStatus.batteryPercent,
+                  deviceStatus.isCharging ? "[CHARGING]" : "");
 
     // GPS
     if (gpsData.valid) {

@@ -43,8 +43,10 @@
 #define MODEM_PWRKEY        4       // Power key (pulse to toggle power)
 #define MODEM_RST           5       // Reset pin
 #define MODEM_POWER_ON      12      // Power enable / Board power hold
-#define MODEM_DTR           25      // Data Terminal Ready (conflicts with MOTOR!)
-#define MODEM_RI            33      // Ring Indicator (conflicts with I2C_SDA!)
+// Note: MODEM_DTR and MODEM_RI are optional and not used in this project
+// to avoid conflicts with MOTOR_PIN (GPIO 25) and I2C_SDA (GPIO 33)
+// #define MODEM_DTR           25      // Data Terminal Ready (NOT USED)
+// #define MODEM_RI            33      // Ring Indicator (NOT USED)
 
 // Modem serial settings
 #define MODEM_BAUD          115200

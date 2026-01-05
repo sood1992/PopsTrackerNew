@@ -72,6 +72,52 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Direct heartbeat endpoint (firmware sends to /api/v1/heartbeat)
+const Device = require('./models/Device');
+app.post('/api/v1/heartbeat', async (req, res) => {
+    try {
+        const {
+            device_id,
+            battery_voltage,
+            battery_percent,
+            is_charging,
+            gps_connected,
+            signal_strength,
+            uptime,
+            firmware_version
+        } = req.body;
+
+        const device = await Device.findOneAndUpdate(
+            { deviceId: device_id },
+            {
+                $set: {
+                    lastSeen: new Date(),
+                    isOnline: true,
+                    batteryLevel: battery_percent,
+                    firmwareVersion: firmware_version
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        // Emit status update
+        const ioInstance = req.app.get('io');
+        ioInstance.to(device_id).emit('heartbeat', {
+            batteryPercent: battery_percent,
+            batteryVoltage: battery_voltage,
+            isCharging: is_charging,
+            gpsConnected: gps_connected,
+            signalStrength: signal_strength,
+            uptime: uptime
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Heartbeat error:', error);
+        res.status(500).json({ error: 'Failed to process heartbeat' });
+    }
+});
+
 // API docs
 app.get('/api/v1', (req, res) => {
     res.json({

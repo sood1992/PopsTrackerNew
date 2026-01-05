@@ -31,9 +31,7 @@ AccelerometerModule::AccelerometerModule() :
 }
 
 bool AccelerometerModule::begin() {
-    // Initialize I2C with custom pins
-    Wire.begin(I2C_SDA, I2C_SCL, I2C_FREQ);
-
+    // Note: I2C is already initialized in main.cpp initializeSensors()
     DEBUG_PRINTLN("Initializing ADXL345...");
 
     if (!accel.begin(ADXL345_ADDR)) {

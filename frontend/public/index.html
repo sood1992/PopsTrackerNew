@@ -870,8 +870,21 @@
                 isTracking ? '📍' : '⏸️';
         }
 
-        function showRoute() {
-            loadRecentWalks();
+        async function showRoute() {
+            try {
+                // Get recent walks first
+                const response = await fetch(`${CONFIG.serverUrl}/api/v1/walk/${CONFIG.deviceId}?limit=1`);
+                const walks = await response.json();
+
+                if (walks && walks.length > 0) {
+                    // Show the most recent walk route
+                    await showWalkRoute(walks[0]._id);
+                } else {
+                    alert('No walks found to display');
+                }
+            } catch (error) {
+                console.error('Failed to show route:', error);
+            }
         }
 
         function endWalk() {
