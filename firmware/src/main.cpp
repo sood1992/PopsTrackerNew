@@ -26,6 +26,7 @@
 #include "gps.h"
 #include "cellular.h"
 #include "walk_tracker.h"
+#include "display.h"
 
 // ============================================================================
 // GLOBAL STATE
@@ -46,6 +47,7 @@ uint32_t bootTime = 0;
 bool gpsInitialized = false;
 bool modemInitialized = false;
 bool accelInitialized = false;
+bool displayInitialized = false;
 
 // ============================================================================
 // FUNCTION PROTOTYPES
@@ -66,6 +68,7 @@ void motorVibrate(int onMs, int offMs, int count);
 void printStatus();
 void findMyDog();
 void checkChargingStatus();
+void updateDisplay();
 
 // ============================================================================
 // SETUP
@@ -167,9 +170,16 @@ void loop() {
     // Handle serial commands for debugging
     handleSerialCommands();
 
-    // Status update every 10 seconds
-    if (now - lastDisplayUpdate >= 10000) {
+    // Update display every 2 seconds
+    if (now - lastDisplayUpdate >= 2000) {
         lastDisplayUpdate = now;
+        updateDisplay();
+    }
+
+    // Serial status update every 10 seconds
+    static uint32_t lastSerialStatus = 0;
+    if (now - lastSerialStatus >= 10000) {
+        lastSerialStatus = now;
         printStatus();
     }
 
@@ -204,6 +214,17 @@ void initializeSensors() {
     // Initialize I2C with custom pins (since GPS uses default I2C pins)
     Wire.begin(I2C_SDA, I2C_SCL, I2C_FREQ);
     Serial.printf("I2C initialized on SDA=%d, SCL=%d\n", I2C_SDA, I2C_SCL);
+
+    // Initialize OLED display
+    Serial.println("\n--- OLED Display (SSD1306) ---");
+    if (display.begin()) {
+        displayInitialized = true;
+        Serial.println("Display: OK");
+        display.showBoot();
+        delay(1000);  // Show boot screen briefly
+    } else {
+        Serial.println("Display: NOT FOUND (optional)");
+    }
 
     // Initialize accelerometer
     Serial.println("\n--- Accelerometer (ADXL345) ---");
@@ -603,4 +624,27 @@ void printStatus() {
                   cellular.isConnected() ? "Yes" : "No");
 
     Serial.println("└─────────────────────────────────────────┘");
+}
+
+// ============================================================================
+// DISPLAY UPDATE
+// ============================================================================
+void updateDisplay() {
+    if (!displayInitialized) return;
+
+    // Show charging screen if charging
+    if (deviceStatus.isCharging) {
+        display.showCharging(deviceStatus.batteryPercent);
+        return;
+    }
+
+    // Show walk screen during walks
+    if (walkTracker.isWalkInProgress()) {
+        WalkSession walk = walkTracker.getCurrentWalk();
+        display.showWalk(walk, gpsData);
+        return;
+    }
+
+    // Default: show status screen
+    display.showStatus(deviceStatus, gpsData, activityData);
 }
