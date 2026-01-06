@@ -7,7 +7,8 @@
 #ifndef CELLULAR_H
 #define CELLULAR_H
 
-#define TINY_GSM_MODEM_A7670
+// SIM7600 driver is compatible with A7670G modem
+#define TINY_GSM_MODEM_SIM7600
 #define TINY_GSM_RX_BUFFER 1024
 
 #include <TinyGsmClient.h>

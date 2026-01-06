@@ -276,7 +276,7 @@ void updateWalkTracking() {
                 motorVibrate(200, 100, 2);
                 break;
 
-            case WALK_COMPLETED:
+            case WALK_COMPLETED: {
                 Serial.println("\n*** WALK COMPLETED ***");
                 Serial.println(walkTracker.generateWalkReport());
 
@@ -295,6 +295,7 @@ void updateWalkTracking() {
 
                 deviceStatus.state = STATE_IDLE;
                 break;
+            }
 
             default:
                 break;
