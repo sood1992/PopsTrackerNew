@@ -1,5 +1,5 @@
 /**
- * PopsTracker - OLED Display Module (SSD1306)
+ * PopsTracker - OLED Display Module (SH1106 via U8g2)
  *
  * Shows status info on 128x64 OLED display via I2C
  */
@@ -8,8 +8,7 @@
 #define DISPLAY_H
 
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <U8g2lib.h>
 #include "config.h"
 
 class DisplayModule {
@@ -37,10 +36,9 @@ public:
     // Power management
     void sleep();
     void wake();
-    void setBrightness(uint8_t level);
 
 private:
-    Adafruit_SSD1306* oled;
+    U8G2_SH1106_128X64_NONAME_F_HW_I2C* u8g2;
     bool initialized;
     bool sleeping;
     uint32_t lastUpdate;

@@ -1,5 +1,5 @@
 /**
- * PopsTracker - OLED Display Module Implementation
+ * PopsTracker - OLED Display Module Implementation (U8g2)
  */
 
 #include "display.h"
@@ -7,260 +7,231 @@
 // Global instance
 DisplayModule display;
 
-DisplayModule::DisplayModule() : oled(nullptr), initialized(false), sleeping(false), lastUpdate(0) {
+DisplayModule::DisplayModule() : u8g2(nullptr), initialized(false), sleeping(false), lastUpdate(0) {
 }
 
 bool DisplayModule::begin() {
-    // Create display object using the already-initialized Wire
-    oled = new Adafruit_SSD1306(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
+    // Create U8g2 display object for SH1106 128x64 I2C
+    // Using hardware I2C with custom pins defined in Wire.begin()
+    u8g2 = new U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
 
-    // Initialize display
-    if (!oled->begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-        DEBUG_PRINTLN("SSD1306 initialization failed!");
-        return false;
-    }
+    // Initialize with pre-configured Wire
+    u8g2->setBusClock(I2C_FREQ);
+    u8g2->begin();
 
     initialized = true;
+    u8g2->clearBuffer();
+    u8g2->sendBuffer();
 
-    // Clear the display buffer completely
-    oled->clearDisplay();
-    oled->display();
-    delay(100);
-
-    // Set normal display mode (not inverted)
-    oled->invertDisplay(false);
-
-    // Configure text settings
-    oled->setTextColor(SSD1306_WHITE);
-    oled->setTextSize(1);
-    oled->cp437(true);  // Use full 256 char font
-
-    DEBUG_PRINTLN("Display initialized");
+    DEBUG_PRINTLN("Display initialized (SH1106)");
     return true;
 }
 
 void DisplayModule::clear() {
     if (!initialized) return;
-    oled->clearDisplay();
-    oled->display();
+    u8g2->clearBuffer();
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::update() {
     if (!initialized || sleeping) return;
-    oled->display();
+    u8g2->sendBuffer();
     lastUpdate = millis();
 }
 
 void DisplayModule::showBoot() {
     if (!initialized) return;
 
-    oled->clearDisplay();
-    oled->fillRect(0, 0, OLED_WIDTH, OLED_HEIGHT, SSD1306_BLACK);  // Force clear
+    u8g2->clearBuffer();
 
-    oled->setTextColor(SSD1306_WHITE, SSD1306_BLACK);  // White text, black background
-    oled->setTextSize(2);
-    oled->setCursor(10, 10);
-    oled->print("Popcorn");
+    // Large title
+    u8g2->setFont(u8g2_font_helvB14_tr);
+    u8g2->drawStr(15, 25, "Popcorn");
 
-    oled->setTextSize(1);
-    oled->setCursor(20, 35);
-    oled->print("GPS Tracker");
-    oled->setCursor(25, 50);
-    oled->print("v");
-    oled->print(FIRMWARE_VERSION);
+    // Subtitle
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    u8g2->drawStr(25, 42, "GPS Tracker");
 
-    oled->display();
+    // Version
+    char version[20];
+    snprintf(version, sizeof(version), "v%s", FIRMWARE_VERSION);
+    u8g2->drawStr(45, 58, version);
+
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showStatus(DeviceStatus& status, GPSData& gps, ActivityData& activity) {
     if (!initialized) return;
 
-    oled->clearDisplay();
-    oled->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    u8g2->clearBuffer();
 
-    // Top bar: battery and signal
+    // Top bar icons
     drawBattery(0, 0, status.batteryPercent, status.isCharging);
     drawSignal(100, 0, status.signalStrength);
-
-    // GPS status
     drawGPS(50, 0, gps.valid, gps.satellites);
 
-    // Line separator
-    oled->drawLine(0, 12, 127, 12, SSD1306_WHITE);
+    // Separator line
+    u8g2->drawHLine(0, 12, 128);
 
-    // Main content
-    oled->setTextSize(1);
+    // Activity info
+    u8g2->setFont(u8g2_font_helvR08_tr);
 
-    // Activity
-    oled->setCursor(0, 16);
     const char* levels[] = {"Resting", "Light", "Active", "V.Active"};
-    oled->print("Activity: ");
-    oled->println(levels[activity.level]);
+    char line[32];
 
-    // Steps
-    oled->setCursor(0, 26);
-    oled->print("Steps: ");
-    oled->println(activity.stepCount);
+    snprintf(line, sizeof(line), "Activity: %s", levels[activity.level]);
+    u8g2->drawStr(0, 24, line);
 
-    // GPS coordinates (if valid)
+    snprintf(line, sizeof(line), "Steps: %lu", (unsigned long)activity.stepCount);
+    u8g2->drawStr(0, 35, line);
+
+    // GPS coordinates
     if (gps.valid) {
-        oled->setCursor(0, 38);
-        oled->print("Lat:");
-        oled->println(gps.latitude, 5);
-        oled->setCursor(0, 48);
-        oled->print("Lon:");
-        oled->println(gps.longitude, 5);
+        snprintf(line, sizeof(line), "Lat: %.5f", gps.latitude);
+        u8g2->drawStr(0, 46, line);
+        snprintf(line, sizeof(line), "Lon: %.5f", gps.longitude);
+        u8g2->drawStr(0, 57, line);
     } else {
-        oled->setCursor(0, 40);
-        oled->print("GPS: Searching...");
+        u8g2->drawStr(0, 46, "GPS: Searching...");
     }
 
-    // Connection status at bottom
-    oled->setCursor(0, 56);
-    oled->print(status.modemConnected ? "LTE:OK " : "LTE:-- ");
-    oled->print(status.serverConnected ? "SRV:OK" : "SRV:--");
-
-    oled->display();
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showWalk(WalkSession& walk, GPSData& gps) {
     if (!initialized) return;
 
-    oled->clearDisplay();
+    u8g2->clearBuffer();
 
     // Header
-    oled->setTextSize(1);
-    oled->setCursor(0, 0);
-    oled->print("WALK IN PROGRESS");
-    oled->drawLine(0, 10, 127, 10, SSD1306_WHITE);
+    u8g2->setFont(u8g2_font_helvB08_tr);
+    u8g2->drawStr(15, 10, "WALK IN PROGRESS");
+    u8g2->drawHLine(0, 12, 128);
+
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    char line[32];
 
     // Duration
     uint32_t mins = walk.duration / 60;
     uint32_t secs = walk.duration % 60;
-    oled->setCursor(0, 14);
-    oled->print("Time: ");
-    oled->print(mins);
-    oled->print(":");
-    if (secs < 10) oled->print("0");
-    oled->println(secs);
+    snprintf(line, sizeof(line), "Time: %lu:%02lu", (unsigned long)mins, (unsigned long)secs);
+    u8g2->drawStr(0, 24, line);
 
     // Distance
-    oled->setCursor(0, 24);
-    oled->print("Dist: ");
     if (walk.distanceMeters >= 1000) {
-        oled->print(walk.distanceMeters / 1000.0, 2);
-        oled->println(" km");
+        snprintf(line, sizeof(line), "Dist: %.2f km", walk.distanceMeters / 1000.0);
     } else {
-        oled->print((int)walk.distanceMeters);
-        oled->println(" m");
+        snprintf(line, sizeof(line), "Dist: %.0f m", walk.distanceMeters);
     }
+    u8g2->drawStr(0, 35, line);
 
     // Steps
-    oled->setCursor(0, 34);
-    oled->print("Steps: ");
-    oled->println(walk.steps);
+    snprintf(line, sizeof(line), "Steps: %lu", (unsigned long)walk.steps);
+    u8g2->drawStr(0, 46, line);
 
-    // Current grade
-    oled->setCursor(0, 46);
-    oled->setTextSize(2);
-    oled->print("Grade:");
+    // Grade - larger font
+    u8g2->setFont(u8g2_font_helvB14_tr);
     const char* grades[] = {"A", "B", "C", "F"};
-    oled->println(grades[walk.grade]);
+    snprintf(line, sizeof(line), "Grade: %s", grades[walk.grade]);
+    u8g2->drawStr(0, 62, line);
 
-    oled->display();
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showAlert(const char* title, const char* message) {
     if (!initialized) return;
 
-    oled->clearDisplay();
+    u8g2->clearBuffer();
 
-    // Alert border
-    oled->drawRect(0, 0, 128, 64, SSD1306_WHITE);
-    oled->drawRect(2, 2, 124, 60, SSD1306_WHITE);
+    // Border
+    u8g2->drawFrame(0, 0, 128, 64);
+    u8g2->drawFrame(2, 2, 124, 60);
 
     // Title
-    oled->setTextSize(1);
-    oled->setCursor(10, 8);
-    oled->print("! ");
-    oled->print(title);
-    oled->print(" !");
+    u8g2->setFont(u8g2_font_helvB08_tr);
+    char titleLine[32];
+    snprintf(titleLine, sizeof(titleLine), "! %s !", title);
+    u8g2->drawStr(10, 18, titleLine);
 
-    // Message (word wrap would be nice, but keep it simple)
-    oled->setCursor(8, 28);
-    oled->print(message);
+    // Message
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    u8g2->drawStr(8, 40, message);
 
-    oled->display();
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showFindMe() {
     if (!initialized) return;
 
-    oled->clearDisplay();
-    oled->setTextSize(2);
-    oled->setCursor(20, 10);
-    oled->print("FIND ME!");
-    oled->setTextSize(1);
-    oled->setCursor(15, 40);
-    oled->print("Looking for dog...");
-    oled->display();
+    u8g2->clearBuffer();
+
+    u8g2->setFont(u8g2_font_helvB14_tr);
+    u8g2->drawStr(15, 30, "FIND ME!");
+
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    u8g2->drawStr(10, 50, "Looking for dog...");
+
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showCharging(uint8_t percent) {
     if (!initialized) return;
 
-    oled->clearDisplay();
+    u8g2->clearBuffer();
 
-    // Large battery icon
-    oled->drawRect(24, 15, 80, 35, SSD1306_WHITE);
-    oled->fillRect(104, 25, 6, 15, SSD1306_WHITE);
+    // Large battery outline
+    u8g2->drawFrame(24, 15, 80, 35);
+    u8g2->drawBox(104, 25, 6, 15);
 
     // Fill level
     int fillWidth = (percent * 74) / 100;
-    oled->fillRect(27, 18, fillWidth, 29, SSD1306_WHITE);
+    if (fillWidth > 0) {
+        u8g2->drawBox(27, 18, fillWidth, 29);
+    }
 
-    // Percentage text
-    oled->setTextSize(2);
-    oled->setCursor(45, 55);
-    oled->print(percent);
-    oled->print("%");
+    // Percentage
+    u8g2->setFont(u8g2_font_helvB14_tr);
+    char pct[10];
+    snprintf(pct, sizeof(pct), "%d%%", percent);
+    u8g2->drawStr(45, 62, pct);
 
-    oled->display();
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::showError(const char* error) {
     if (!initialized) return;
 
-    oled->clearDisplay();
-    oled->setTextSize(1);
-    oled->setCursor(0, 0);
-    oled->println("ERROR:");
-    oled->println();
-    oled->println(error);
-    oled->display();
+    u8g2->clearBuffer();
+
+    u8g2->setFont(u8g2_font_helvB08_tr);
+    u8g2->drawStr(0, 12, "ERROR:");
+
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    u8g2->drawStr(0, 30, error);
+
+    u8g2->sendBuffer();
 }
 
 void DisplayModule::drawBattery(int x, int y, uint8_t percent, bool charging) {
     // Battery outline (20x8)
-    oled->drawRect(x, y, 20, 8, SSD1306_WHITE);
-    oled->fillRect(x + 20, y + 2, 2, 4, SSD1306_WHITE);  // Tip
+    u8g2->drawFrame(x, y, 20, 8);
+    u8g2->drawBox(x + 20, y + 2, 2, 4);  // Tip
 
     // Fill based on percentage
     int fillWidth = (percent * 16) / 100;
     if (fillWidth > 0) {
-        oled->fillRect(x + 2, y + 2, fillWidth, 4, SSD1306_WHITE);
+        u8g2->drawBox(x + 2, y + 2, fillWidth, 4);
     }
 
     // Charging indicator
     if (charging) {
-        oled->setCursor(x + 24, y);
-        oled->print("+");
+        u8g2->setFont(u8g2_font_helvR08_tr);
+        u8g2->drawStr(x + 24, y + 8, "+");
     }
 }
 
 void DisplayModule::drawSignal(int x, int y, int strength) {
     // Signal bars (4 bars)
-    // strength: 0-31 from modem
     int bars = 0;
     if (strength > 20) bars = 4;
     else if (strength > 15) bars = 3;
@@ -271,37 +242,32 @@ void DisplayModule::drawSignal(int x, int y, int strength) {
         int barHeight = 2 + (i * 2);
         int barY = y + 8 - barHeight;
         if (i < bars) {
-            oled->fillRect(x + (i * 5), barY, 3, barHeight, SSD1306_WHITE);
+            u8g2->drawBox(x + (i * 5), barY, 3, barHeight);
         } else {
-            oled->drawRect(x + (i * 5), barY, 3, barHeight, SSD1306_WHITE);
+            u8g2->drawFrame(x + (i * 5), barY, 3, barHeight);
         }
     }
 }
 
 void DisplayModule::drawGPS(int x, int y, bool valid, uint8_t sats) {
-    oled->setCursor(x, y);
+    u8g2->setFont(u8g2_font_helvR08_tr);
+    char gpsStr[12];
     if (valid) {
-        oled->print("GPS:");
-        oled->print(sats);
+        snprintf(gpsStr, sizeof(gpsStr), "GPS:%d", sats);
     } else {
-        oled->print("GPS:--");
+        snprintf(gpsStr, sizeof(gpsStr), "GPS:--");
     }
+    u8g2->drawStr(x, y + 8, gpsStr);
 }
 
 void DisplayModule::sleep() {
     if (!initialized) return;
-    oled->ssd1306_command(SSD1306_DISPLAYOFF);
+    u8g2->setPowerSave(1);
     sleeping = true;
 }
 
 void DisplayModule::wake() {
     if (!initialized) return;
-    oled->ssd1306_command(SSD1306_DISPLAYON);
+    u8g2->setPowerSave(0);
     sleeping = false;
-}
-
-void DisplayModule::setBrightness(uint8_t level) {
-    if (!initialized) return;
-    oled->ssd1306_command(SSD1306_SETCONTRAST);
-    oled->ssd1306_command(level);
 }
