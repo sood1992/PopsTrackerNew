@@ -21,10 +21,19 @@ bool DisplayModule::begin() {
     }
 
     initialized = true;
+
+    // Clear the display buffer completely
     oled->clearDisplay();
+    oled->display();
+    delay(100);
+
+    // Set normal display mode (not inverted)
+    oled->invertDisplay(false);
+
+    // Configure text settings
     oled->setTextColor(SSD1306_WHITE);
     oled->setTextSize(1);
-    oled->display();
+    oled->cp437(true);  // Use full 256 char font
 
     DEBUG_PRINTLN("Display initialized");
     return true;
@@ -46,15 +55,20 @@ void DisplayModule::showBoot() {
     if (!initialized) return;
 
     oled->clearDisplay();
+    oled->fillRect(0, 0, OLED_WIDTH, OLED_HEIGHT, SSD1306_BLACK);  // Force clear
+
+    oled->setTextColor(SSD1306_WHITE, SSD1306_BLACK);  // White text, black background
     oled->setTextSize(2);
     oled->setCursor(10, 10);
     oled->print("Popcorn");
+
     oled->setTextSize(1);
     oled->setCursor(20, 35);
     oled->print("GPS Tracker");
     oled->setCursor(25, 50);
     oled->print("v");
     oled->print(FIRMWARE_VERSION);
+
     oled->display();
 }
 
@@ -62,6 +76,7 @@ void DisplayModule::showStatus(DeviceStatus& status, GPSData& gps, ActivityData&
     if (!initialized) return;
 
     oled->clearDisplay();
+    oled->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
 
     // Top bar: battery and signal
     drawBattery(0, 0, status.batteryPercent, status.isCharging);
