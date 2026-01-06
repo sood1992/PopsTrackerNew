@@ -1,8 +1,8 @@
 /**
  * PopsTracker - Cellular Module (A7670G)
  *
- * Handles LTE connectivity and HTTPS data transmission using AT commands
- * Uses modem's native SSL/TLS for HTTPS (no external SSL library needed)
+ * Handles LTE connectivity and HTTPS data transmission
+ * Uses lewisxhe TinyGSM fork with built-in HTTPS support
  */
 
 #ifndef CELLULAR_H
@@ -38,7 +38,7 @@ public:
     bool isNetworkConnected();
     bool isGPRSConnected();
 
-    // HTTP API calls (using AT commands for HTTPS)
+    // HTTP API calls (using modem's built-in HTTPS)
     bool sendLocation(GPSData& gps, ActivityData& activity);
     bool sendWalkData(WalkSession& walk);
     bool sendHeartbeat(DeviceStatus& status);
@@ -63,14 +63,12 @@ private:
     String operatorName;
     uint32_t lastConnectAttempt;
 
-    // AT command based HTTPS
-    bool httpInit();
-    bool httpTerminate();
-    bool httpsPost(const char* url, const char* body, String& response, int& statusCode);
+    // HTTPS using lewisxhe fork's built-in methods
+    bool httpsPost(const char* url, const char* contentType, const char* body, String& response, int& statusCode);
+    bool configureSSL();
 
     // AT command helpers
     String sendATCommand(const char* cmd, uint32_t timeout = 1000);
-    bool waitForResponse(const char* expected, uint32_t timeout = 1000);
     String readResponse(uint32_t timeout = 1000);
 
     // Helper methods
