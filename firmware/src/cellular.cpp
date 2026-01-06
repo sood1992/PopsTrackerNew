@@ -10,7 +10,8 @@ CellularModule cellular;
 CellularModule::CellularModule() :
     modemSerial(&Serial1),
     modem(*modemSerial),
-    client(modem),
+    gsmClient(modem),
+    sslClient(nullptr),
     http(nullptr),
     modemReady(false),
     networkConnected(false),
@@ -162,11 +163,20 @@ bool CellularModule::connect() {
     DEBUG_PRINTF("Connected! Operator: %s, Signal: %d\n",
                  operatorName.c_str(), signalStrength);
 
-    // Create HTTP client
+    // Create SSL and HTTP clients
+    if (sslClient != nullptr) {
+        delete sslClient;
+    }
     if (http != nullptr) {
         delete http;
     }
-    http = new HttpClient(client, SERVER_HOST, SERVER_PORT);
+
+    // Create SSL wrapper around GSM client
+    sslClient = new SSLClient(gsmClient);
+    sslClient->setInsecure();  // Skip certificate validation (for simplicity)
+
+    // Create HTTP client using SSL client
+    http = new HttpClient(*sslClient, SERVER_HOST, SERVER_PORT);
 
     return true;
 }
@@ -184,6 +194,10 @@ void CellularModule::disconnect() {
     if (http != nullptr) {
         delete http;
         http = nullptr;
+    }
+    if (sslClient != nullptr) {
+        delete sslClient;
+        sslClient = nullptr;
     }
 }
 

@@ -8,10 +8,13 @@
 #define CELLULAR_H
 
 // SIM7600 driver is compatible with A7670G modem
-#define TINY_GSM_MODEM_SIM7600
+// TINY_GSM_MODEM_SIM7600 defined in platformio.ini build_flags
+#ifndef TINY_GSM_RX_BUFFER
 #define TINY_GSM_RX_BUFFER 1024
+#endif
 
 #include <TinyGsmClient.h>
+#include <SSLClient.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
@@ -58,7 +61,8 @@ public:
 private:
     HardwareSerial* modemSerial;
     TinyGsm modem;
-    TinyGsmClientSecure client;  // Use SSL client for HTTPS
+    TinyGsmClient gsmClient;
+    SSLClient* sslClient;       // SSL wrapper for HTTPS
     HttpClient* http;
 
     bool modemReady;
