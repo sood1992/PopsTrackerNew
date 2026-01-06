@@ -24,9 +24,9 @@
 // SERVER CONFIGURATION
 // ============================================================================
 #define SERVER_HOST         "popcorn.up.railway.app"
-#define SERVER_PORT         443
+#define SERVER_PORT         80          // Use HTTP - Railway handles HTTPS termination
 #define SERVER_PATH         "/api/v1/tracking"
-#define USE_HTTPS           true
+#define USE_HTTPS           false
 
 // API endpoints
 #define API_LOCATION        "/api/v1/location"
