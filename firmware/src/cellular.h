@@ -58,7 +58,7 @@ public:
 private:
     HardwareSerial* modemSerial;
     TinyGsm modem;
-    TinyGsmClient client;
+    TinyGsmClientSecure client;  // Use SSL client for HTTPS
     HttpClient* http;
 
     bool modemReady;
