@@ -1,7 +1,8 @@
 /**
  * PopsTracker - Cellular Module (A7670G)
  *
- * Handles LTE connectivity and data transmission to server
+ * Handles LTE connectivity and HTTPS data transmission using AT commands
+ * Uses modem's native SSL/TLS for HTTPS (no external SSL library needed)
  */
 
 #ifndef CELLULAR_H
@@ -14,8 +15,6 @@
 #endif
 
 #include <TinyGsmClient.h>
-#include <SSLClient.h>
-#include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
 
@@ -39,15 +38,11 @@ public:
     bool isNetworkConnected();
     bool isGPRSConnected();
 
-    // HTTP API calls
+    // HTTP API calls (using AT commands for HTTPS)
     bool sendLocation(GPSData& gps, ActivityData& activity);
     bool sendWalkData(WalkSession& walk);
     bool sendHeartbeat(DeviceStatus& status);
     bool sendAlert(const char* alertType, const char* message);
-
-    // Raw HTTP
-    bool httpGet(const char* path, String& response);
-    bool httpPost(const char* path, const char* body, String& response);
 
     // SMS (optional)
     bool sendSMS(const char* number, const char* message);
@@ -61,15 +56,22 @@ public:
 private:
     HardwareSerial* modemSerial;
     TinyGsm modem;
-    TinyGsmClient gsmClient;
-    SSLClient* sslClient;       // SSL wrapper for HTTPS
-    HttpClient* http;
 
     bool modemReady;
     bool networkConnected;
     int signalStrength;
     String operatorName;
     uint32_t lastConnectAttempt;
+
+    // AT command based HTTPS
+    bool httpInit();
+    bool httpTerminate();
+    bool httpsPost(const char* url, const char* body, String& response, int& statusCode);
+
+    // AT command helpers
+    String sendATCommand(const char* cmd, uint32_t timeout = 1000);
+    bool waitForResponse(const char* expected, uint32_t timeout = 1000);
+    String readResponse(uint32_t timeout = 1000);
 
     // Helper methods
     bool waitForNetwork(uint32_t timeoutMs = 60000);

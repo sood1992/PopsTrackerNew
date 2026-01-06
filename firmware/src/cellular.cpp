@@ -1,5 +1,7 @@
 /**
  * PopsTracker - Cellular Module Implementation
+ *
+ * Uses A7670G modem's native AT commands for HTTPS
  */
 
 #include "cellular.h"
@@ -10,9 +12,6 @@ CellularModule cellular;
 CellularModule::CellularModule() :
     modemSerial(&Serial1),
     modem(*modemSerial),
-    gsmClient(modem),
-    sslClient(nullptr),
-    http(nullptr),
     modemReady(false),
     networkConnected(false),
     signalStrength(0),
@@ -83,7 +82,6 @@ bool CellularModule::powerOn() {
     DEBUG_PRINTLN("Powering on modem...");
 
     // Power on sequence for A7670G
-    // Pull PWRKEY low for 1 second
     digitalWrite(MODEM_PWRKEY, LOW);
     delay(100);
     digitalWrite(MODEM_PWRKEY, HIGH);
@@ -100,12 +98,9 @@ bool CellularModule::powerOn() {
 bool CellularModule::powerOff() {
     DEBUG_PRINTLN("Powering off modem...");
 
-    // Send AT command to power off
     modem.poweroff();
-
     delay(1000);
 
-    // Pull PWRKEY for power off
     digitalWrite(MODEM_PWRKEY, HIGH);
     delay(3000);
     digitalWrite(MODEM_PWRKEY, LOW);
@@ -119,7 +114,6 @@ bool CellularModule::powerOff() {
 bool CellularModule::restart() {
     DEBUG_PRINTLN("Restarting modem...");
 
-    // Reset pulse
     digitalWrite(MODEM_RST, HIGH);
     delay(200);
     digitalWrite(MODEM_RST, LOW);
@@ -163,21 +157,6 @@ bool CellularModule::connect() {
     DEBUG_PRINTF("Connected! Operator: %s, Signal: %d\n",
                  operatorName.c_str(), signalStrength);
 
-    // Create SSL and HTTP clients
-    if (sslClient != nullptr) {
-        delete sslClient;
-    }
-    if (http != nullptr) {
-        delete http;
-    }
-
-    // Create SSL wrapper around GSM client
-    sslClient = new SSLClient(gsmClient);
-    sslClient->setInsecure();  // Skip certificate validation (for simplicity)
-
-    // Create HTTP client using SSL client
-    http = new HttpClient(*sslClient, SERVER_HOST, SERVER_PORT);
-
     return true;
 }
 
@@ -187,18 +166,8 @@ bool CellularModule::isConnected() {
 
 void CellularModule::disconnect() {
     DEBUG_PRINTLN("Disconnecting from network...");
-
     modem.gprsDisconnect();
     networkConnected = false;
-
-    if (http != nullptr) {
-        delete http;
-        http = nullptr;
-    }
-    if (sslClient != nullptr) {
-        delete sslClient;
-        sslClient = nullptr;
-    }
 }
 
 bool CellularModule::waitForNetwork(uint32_t timeoutMs) {
@@ -256,6 +225,169 @@ bool CellularModule::isGPRSConnected() {
     return modem.isGprsConnected();
 }
 
+// ============================================================================
+// AT COMMAND HELPERS
+// ============================================================================
+
+String CellularModule::sendATCommand(const char* cmd, uint32_t timeout) {
+    // Clear buffer
+    while (modemSerial->available()) {
+        modemSerial->read();
+    }
+
+    modemSerial->println(cmd);
+    return readResponse(timeout);
+}
+
+String CellularModule::readResponse(uint32_t timeout) {
+    String response = "";
+    uint32_t start = millis();
+
+    while (millis() - start < timeout) {
+        while (modemSerial->available()) {
+            char c = modemSerial->read();
+            response += c;
+        }
+        delay(10);
+    }
+
+    return response;
+}
+
+bool CellularModule::waitForResponse(const char* expected, uint32_t timeout) {
+    String response = readResponse(timeout);
+    return response.indexOf(expected) >= 0;
+}
+
+// ============================================================================
+// AT COMMAND BASED HTTPS
+// ============================================================================
+
+bool CellularModule::httpInit() {
+    // Terminate any existing HTTP session
+    sendATCommand("AT+HTTPTERM", 1000);
+    delay(100);
+
+    // Initialize HTTP service
+    String response = sendATCommand("AT+HTTPINIT", 2000);
+    if (response.indexOf("OK") < 0 && response.indexOf("ERROR") >= 0) {
+        // Already initialized, try to terminate and reinit
+        sendATCommand("AT+HTTPTERM", 1000);
+        delay(500);
+        response = sendATCommand("AT+HTTPINIT", 2000);
+    }
+
+    return response.indexOf("OK") >= 0;
+}
+
+bool CellularModule::httpTerminate() {
+    String response = sendATCommand("AT+HTTPTERM", 1000);
+    return response.indexOf("OK") >= 0;
+}
+
+bool CellularModule::httpsPost(const char* url, const char* body, String& response, int& statusCode) {
+    statusCode = 0;
+    response = "";
+
+    DEBUG_PRINTF("HTTPS POST to: %s\n", url);
+
+    // Initialize HTTP
+    if (!httpInit()) {
+        DEBUG_PRINTLN("HTTP init failed");
+        return false;
+    }
+
+    // Enable SSL
+    String resp = sendATCommand("AT+HTTPSSL=1", 1000);
+    if (resp.indexOf("OK") < 0) {
+        DEBUG_PRINTLN("Failed to enable SSL");
+        httpTerminate();
+        return false;
+    }
+
+    // Set URL
+    char urlCmd[256];
+    snprintf(urlCmd, sizeof(urlCmd), "AT+HTTPPARA=\"URL\",\"%s\"", url);
+    resp = sendATCommand(urlCmd, 2000);
+    if (resp.indexOf("OK") < 0) {
+        DEBUG_PRINTLN("Failed to set URL");
+        httpTerminate();
+        return false;
+    }
+
+    // Set content type
+    resp = sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 1000);
+
+    // Set user agent
+    resp = sendATCommand("AT+HTTPPARA=\"UA\",\"PopsTracker/1.0\"", 1000);
+
+    // Set custom header for device ID
+    char headerCmd[128];
+    snprintf(headerCmd, sizeof(headerCmd), "AT+HTTPPARA=\"USERDATA\",\"X-Device-ID: %s\"", DEVICE_ID);
+    sendATCommand(headerCmd, 1000);
+
+    // Send data length
+    int bodyLen = strlen(body);
+    char dataCmd[64];
+    snprintf(dataCmd, sizeof(dataCmd), "AT+HTTPDATA=%d,10000", bodyLen);
+    resp = sendATCommand(dataCmd, 2000);
+
+    if (resp.indexOf("DOWNLOAD") >= 0) {
+        // Send the body data
+        modemSerial->print(body);
+        delay(1000);
+
+        // Wait for OK
+        resp = readResponse(5000);
+        if (resp.indexOf("OK") < 0) {
+            DEBUG_PRINTLN("Failed to send HTTP data");
+            httpTerminate();
+            return false;
+        }
+    } else {
+        DEBUG_PRINTLN("HTTPDATA command failed");
+        httpTerminate();
+        return false;
+    }
+
+    // Perform POST request (action=1 is POST)
+    resp = sendATCommand("AT+HTTPACTION=1", 30000);
+
+    // Parse response: +HTTPACTION: 1,<status>,<datalen>
+    int actionIdx = resp.indexOf("+HTTPACTION:");
+    if (actionIdx >= 0) {
+        int commaIdx1 = resp.indexOf(',', actionIdx);
+        int commaIdx2 = resp.indexOf(',', commaIdx1 + 1);
+        if (commaIdx1 > 0 && commaIdx2 > commaIdx1) {
+            statusCode = resp.substring(commaIdx1 + 1, commaIdx2).toInt();
+            DEBUG_PRINTF("HTTP Status: %d\n", statusCode);
+        }
+    }
+
+    // Read response data
+    resp = sendATCommand("AT+HTTPREAD=0,1024", 5000);
+    int readIdx = resp.indexOf("+HTTPREAD:");
+    if (readIdx >= 0) {
+        int dataStart = resp.indexOf('\n', readIdx) + 1;
+        int dataEnd = resp.indexOf("OK", dataStart);
+        if (dataEnd > dataStart) {
+            response = resp.substring(dataStart, dataEnd);
+            response.trim();
+        }
+    }
+
+    // Terminate HTTP session
+    httpTerminate();
+
+    DEBUG_PRINTF("POST %s -> %d\n", url, statusCode);
+
+    return statusCode >= 200 && statusCode < 300;
+}
+
+// ============================================================================
+// API FUNCTIONS
+// ============================================================================
+
 bool CellularModule::sendLocation(GPSData& gps, ActivityData& activity) {
     if (!isConnected()) {
         DEBUG_PRINTLN("Not connected, skipping location send");
@@ -264,14 +396,18 @@ bool CellularModule::sendLocation(GPSData& gps, ActivityData& activity) {
 
     String json = buildJSON(gps, activity);
     String response;
+    int statusCode;
+
+    char url[128];
+    snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, API_LOCATION);
 
     DEBUG_PRINTLN("Sending location data...");
-    bool success = httpPost(API_LOCATION, json.c_str(), response);
+    bool success = httpsPost(url, json.c_str(), response, statusCode);
 
     if (success) {
         DEBUG_PRINTLN("Location sent successfully");
     } else {
-        DEBUG_PRINTLN("Failed to send location");
+        DEBUG_PRINTF("Failed to send location (status: %d)\n", statusCode);
     }
 
     return success;
@@ -285,14 +421,18 @@ bool CellularModule::sendWalkData(WalkSession& walk) {
 
     String json = buildWalkJSON(walk);
     String response;
+    int statusCode;
+
+    char url[128];
+    snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, API_WALK);
 
     DEBUG_PRINTLN("Sending walk data...");
-    bool success = httpPost(API_WALK, json.c_str(), response);
+    bool success = httpsPost(url, json.c_str(), response, statusCode);
 
     if (success) {
         DEBUG_PRINTLN("Walk data sent successfully");
     } else {
-        DEBUG_PRINTLN("Failed to send walk data");
+        DEBUG_PRINTF("Failed to send walk data (status: %d)\n", statusCode);
     }
 
     return success;
@@ -305,8 +445,16 @@ bool CellularModule::sendHeartbeat(DeviceStatus& status) {
 
     String json = buildStatusJSON(status);
     String response;
+    int statusCode;
 
-    return httpPost(API_HEARTBEAT, json.c_str(), response);
+    char url[128];
+    snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, API_HEARTBEAT);
+
+    bool success = httpsPost(url, json.c_str(), response, statusCode);
+
+    DEBUG_PRINTF("Heartbeat -> %d\n", statusCode);
+
+    return success;
 }
 
 bool CellularModule::sendAlert(const char* alertType, const char* message) {
@@ -325,50 +473,18 @@ bool CellularModule::sendAlert(const char* alertType, const char* message) {
     serializeJson(doc, json);
 
     String response;
-    bool success = httpPost(API_ALERT, json.c_str(), response);
+    int statusCode;
+
+    char url[128];
+    snprintf(url, sizeof(url), "https://%s%s", SERVER_HOST, API_ALERT);
+
+    bool success = httpsPost(url, json.c_str(), response, statusCode);
 
     if (success) {
         DEBUG_PRINTF("Alert sent: %s - %s\n", alertType, message);
     }
 
     return success;
-}
-
-bool CellularModule::httpGet(const char* path, String& response) {
-    if (http == nullptr) return false;
-
-    http->beginRequest();
-    http->get(path);
-    http->sendHeader("Content-Type", "application/json");
-    http->sendHeader("X-Device-ID", DEVICE_ID);
-    http->endRequest();
-
-    int statusCode = http->responseStatusCode();
-    response = http->responseBody();
-
-    DEBUG_PRINTF("GET %s -> %d\n", path, statusCode);
-
-    return statusCode >= 200 && statusCode < 300;
-}
-
-bool CellularModule::httpPost(const char* path, const char* body, String& response) {
-    if (http == nullptr) return false;
-
-    http->beginRequest();
-    http->post(path);
-    http->sendHeader("Content-Type", "application/json");
-    http->sendHeader("X-Device-ID", DEVICE_ID);
-    http->sendHeader("Content-Length", strlen(body));
-    http->beginBody();
-    http->print(body);
-    http->endRequest();
-
-    int statusCode = http->responseStatusCode();
-    response = http->responseBody();
-
-    DEBUG_PRINTF("POST %s -> %d\n", path, statusCode);
-
-    return statusCode >= 200 && statusCode < 300;
 }
 
 bool CellularModule::sendSMS(const char* number, const char* message) {
@@ -388,9 +504,12 @@ String CellularModule::getICCID() {
     return modem.getSimCCID();
 }
 
-// Time synchronization variables
-static uint32_t bootUnixTime = 0;  // Unix time at boot
-static uint32_t bootMillis = 0;     // millis() at time sync
+// ============================================================================
+// TIME SYNCHRONIZATION
+// ============================================================================
+
+static uint32_t bootUnixTime = 0;
+static uint32_t bootMillis = 0;
 
 bool CellularModule::syncTime() {
     if (!modemReady) return false;
@@ -417,7 +536,6 @@ bool CellularModule::syncTime() {
     int end = response.lastIndexOf("\"");
     if (start >= 0 && end > start) {
         String timeStr = response.substring(start + 1, end);
-        // Parse: "24/12/15,10:30:00+22"
         int year = 2000 + timeStr.substring(0, 2).toInt();
         int month = timeStr.substring(3, 5).toInt();
         int day = timeStr.substring(6, 8).toInt();
@@ -425,16 +543,15 @@ bool CellularModule::syncTime() {
         int minute = timeStr.substring(12, 14).toInt();
         int second = timeStr.substring(15, 17).toInt();
 
-        // Convert to Unix timestamp (simplified - doesn't account for leap years perfectly)
+        // Convert to Unix timestamp
         uint32_t unixTime = 0;
-        // Days since 1970
         for (int y = 1970; y < year; y++) {
             unixTime += (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 366 : 365;
         }
         static const int daysInMonth[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
         unixTime += daysInMonth[month - 1];
         if (month > 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) {
-            unixTime += 1;  // Leap year
+            unixTime += 1;
         }
         unixTime += day - 1;
         unixTime = unixTime * 86400 + hour * 3600 + minute * 60 + second;
@@ -452,9 +569,7 @@ bool CellularModule::syncTime() {
 }
 
 uint32_t CellularModule::getNetworkTime() {
-    // Return Unix timestamp based on synced time + elapsed millis
     if (bootUnixTime == 0) {
-        // Not synced yet, try to sync
         syncTime();
     }
 
@@ -462,18 +577,20 @@ uint32_t CellularModule::getNetworkTime() {
         return bootUnixTime + ((millis() - bootMillis) / 1000);
     }
 
-    // Fallback: return millis-based time (will be wrong but at least unique)
     return millis() / 1000;
 }
+
+// ============================================================================
+// JSON BUILDERS
+// ============================================================================
 
 String CellularModule::buildJSON(GPSData& gps, ActivityData& activity) {
     JsonDocument doc;
 
     doc["device_id"] = DEVICE_ID;
     doc["dog_name"] = DOG_NAME;
-    doc["timestamp"] = getNetworkTime() * 1000UL;  // Send as milliseconds for JS Date compatibility
+    doc["timestamp"] = getNetworkTime() * 1000UL;
 
-    // GPS data
     JsonObject location = doc["location"].to<JsonObject>();
     location["lat"] = gps.latitude;
     location["lon"] = gps.longitude;
@@ -483,7 +600,6 @@ String CellularModule::buildJSON(GPSData& gps, ActivityData& activity) {
     location["satellites"] = gps.satellites;
     location["valid"] = gps.valid;
 
-    // Activity data
     JsonObject activityObj = doc["activity"].to<JsonObject>();
     activityObj["steps"] = activity.stepCount;
     activityObj["active_minutes"] = activity.activeMinutes;
@@ -504,11 +620,9 @@ String CellularModule::buildWalkJSON(WalkSession& walk) {
     doc["dog_name"] = DOG_NAME;
     doc["walk_id"] = walk.walkId;
 
-    // Convert millis-based timestamps to Unix timestamps in milliseconds
     uint32_t currentUnixMs = getNetworkTime() * 1000UL;
     uint32_t currentMillis = millis();
 
-    // Calculate Unix time for start and end based on elapsed time
     uint32_t startUnixMs = currentUnixMs - (currentMillis - walk.startTime);
     uint32_t endUnixMs = currentUnixMs - (currentMillis - walk.endTime);
 
@@ -524,23 +638,19 @@ String CellularModule::buildWalkJSON(WalkSession& walk) {
     doc["active_seconds"] = walk.activeSeconds;
     doc["stationary_seconds"] = walk.stationarySeconds;
 
-    // Calculate active percentage
     float activePercent = 0;
     if (walk.duration > 0) {
         activePercent = (float)walk.activeSeconds / walk.duration * 100;
     }
     doc["active_percent"] = activePercent;
 
-    // Walk grade
     const char* gradeStr[] = {"A", "B", "C", "F"};
     doc["grade"] = gradeStr[walk.grade];
 
-    // Cheating detection
     doc["was_carried"] = walk.wasCarried;
     doc["was_in_vehicle"] = walk.wasInVehicle;
     doc["pause_count"] = walk.pauseCount;
 
-    // Route endpoints
     JsonObject start = doc["start_location"].to<JsonObject>();
     start["lat"] = walk.startLat;
     start["lon"] = walk.startLon;
@@ -559,7 +669,7 @@ String CellularModule::buildStatusJSON(DeviceStatus& status) {
 
     doc["device_id"] = DEVICE_ID;
     doc["firmware_version"] = FIRMWARE_VERSION;
-    doc["timestamp"] = getNetworkTime() * 1000UL;  // Send as milliseconds for JS Date compatibility
+    doc["timestamp"] = getNetworkTime() * 1000UL;
 
     doc["battery_voltage"] = status.batteryVoltage;
     doc["battery_percent"] = status.batteryPercent;
