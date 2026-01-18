@@ -64,6 +64,8 @@
 // Per LILYGO T-A7670G R2 schematic:
 #define GPS_TX              21      // ESP32 TX -> GPS RX (send commands to GPS)
 #define GPS_RX              22      // ESP32 RX <- GPS TX (receive NMEA from GPS)
+#define GPS_WAKEUP          19      // GPS wake-up pin (set HIGH to enable GPS)
+#define GPS_PPS             23      // GPS Pulse Per Second (optional, not used)
 #define GPS_BAUD            9600    // L76K default baud rate
 #define SerialGPS           Serial2
 
@@ -123,7 +125,8 @@
 // ============================================================================
 // BUZZER
 // ============================================================================
-#define BUZZER_PIN          19      // Active HIGH
+// Note: GPIO 19 is used for GPS_WAKEUP, buzzer moved to GPIO 0
+#define BUZZER_PIN          0       // Active HIGH (strapping pin, works after boot)
 #define BUZZER_FREQ         2000    // Default frequency (Hz)
 #define BUZZER_CHANNEL      0       // PWM channel
 

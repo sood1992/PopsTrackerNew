@@ -27,6 +27,12 @@ GPSModule::GPSModule() :
 bool GPSModule::begin() {
     DEBUG_PRINTLN("Initializing GPS module (L76K)...");
 
+    // Enable GPS module by setting wake-up pin HIGH
+    pinMode(GPS_WAKEUP, OUTPUT);
+    digitalWrite(GPS_WAKEUP, HIGH);
+    DEBUG_PRINTLN("GPS wake-up pin set HIGH");
+    delay(100);
+
     // Initialize GPS serial for L76K onboard GPS
     // Per LILYGO T-A7670G R2 pinout:
     // ESP32 RX (GPIO 22) <- L76K TX (receive GPS data)

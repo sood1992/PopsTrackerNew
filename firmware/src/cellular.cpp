@@ -280,7 +280,7 @@ String CellularModule::readResponse(uint32_t timeout) {
 }
 
 // ============================================================================
-// HTTPS POST using lewisxhe TinyGSM fork
+// HTTPS POST using AT+HTTP* commands (A7670G native HTTPS)
 // ============================================================================
 
 bool CellularModule::httpsPost(const char* url, const char* contentType, const char* body, String& response, int& statusCode) {
@@ -289,64 +289,58 @@ bool CellularModule::httpsPost(const char* url, const char* contentType, const c
 
     DEBUG_PRINTF("HTTPS POST: %s\n", url);
 
-    // A7670 uses different commands than SIM800/SIM7600
-    // Use AT+SHCONF/AT+SHREQ for HTTPS
-
-    // Stop any existing connection
-    sendATCommand("AT+SHDISC", 1000);
+    // Terminate any existing HTTP session
+    sendATCommand("AT+HTTPTERM", 1000);
     delay(100);
 
-    // Configure SSL
-    sendATCommand("AT+CSSLCFG=\"enableSNI\",1,1", 2000);
-    sendATCommand("AT+CSSLCFG=\"ignorertctime\",1,1", 2000);
-    sendATCommand("AT+SHSSL=1,\"\"", 2000);  // Enable SSL with default cert
+    // Initialize HTTP service
+    String resp = sendATCommand("AT+HTTPINIT", 3000);
+    if (resp.indexOf("OK") < 0 && resp.indexOf("ERROR") >= 0) {
+        // Already initialized, try to terminate and reinit
+        sendATCommand("AT+HTTPTERM", 1000);
+        delay(100);
+        resp = sendATCommand("AT+HTTPINIT", 3000);
+    }
 
-    // Set HTTP parameters
-    char cmd[300];
-
-    // Set URL
-    snprintf(cmd, sizeof(cmd), "AT+SHCONF=\"URL\",\"%s\"", url);
-    String resp = sendATCommand(cmd, 2000);
+    // Set URL (A7670 auto-detects https:// and uses SSL)
+    char cmd[350];
+    snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"URL\",\"%s\"", url);
+    resp = sendATCommand(cmd, 2000);
     if (resp.indexOf("OK") < 0) {
         DEBUG_PRINTLN("Failed to set URL");
+        sendATCommand("AT+HTTPTERM", 1000);
         return false;
     }
 
-    // Set content type header
-    snprintf(cmd, sizeof(cmd), "AT+SHAHEAD=\"Content-Type\",\"%s\"", contentType);
+    // Set content type
+    snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"CONTENT\",\"%s\"", contentType);
     sendATCommand(cmd, 1000);
 
-    // Set device ID header
-    snprintf(cmd, sizeof(cmd), "AT+SHAHEAD=\"X-Device-ID\",\"%s\"", DEVICE_ID);
+    // Set custom header for device ID
+    snprintf(cmd, sizeof(cmd), "AT+HTTPPARA=\"USERDATA\",\"X-Device-ID: %s\"", DEVICE_ID);
     sendATCommand(cmd, 1000);
 
-    // Set body size
-    snprintf(cmd, sizeof(cmd), "AT+SHBOD=%d,10000", strlen(body));
+    // Prepare to send body data
+    int bodyLen = strlen(body);
+    snprintf(cmd, sizeof(cmd), "AT+HTTPDATA=%d,10000", bodyLen);
     resp = sendATCommand(cmd, 2000);
 
-    // Check for input prompt (>)
-    if (resp.indexOf(">") >= 0 || resp.indexOf("OK") >= 0) {
+    // Check for DOWNLOAD prompt
+    if (resp.indexOf("DOWNLOAD") >= 0 || resp.indexOf("OK") >= 0) {
         // Send body data
         modemSerial->print(body);
         delay(500);
         resp = readResponse(5000);
+        DEBUG_PRINTF("Body sent, response: %s\n", resp.c_str());
     }
 
-    // Connect and send request
-    resp = sendATCommand("AT+SHCONN", 30000);
-    if (resp.indexOf("OK") < 0) {
-        DEBUG_PRINTLN("SHCONN failed");
-        sendATCommand("AT+SHDISC", 1000);
-        return false;
-    }
+    // Execute POST request (action 1 = POST)
+    resp = sendATCommand("AT+HTTPACTION=1", 60000);
 
-    // Make POST request
-    resp = sendATCommand("AT+SHREQ=\"\",3", 60000);  // 3 = POST
-
-    // Parse response: +SHREQ: "POST",<status>,<length>
-    int shreqIdx = resp.indexOf("+SHREQ:");
-    if (shreqIdx >= 0) {
-        int commaIdx1 = resp.indexOf(',', shreqIdx);
+    // Parse response: +HTTPACTION: 1,<status>,<data_length>
+    int actionIdx = resp.indexOf("+HTTPACTION:");
+    if (actionIdx >= 0) {
+        int commaIdx1 = resp.indexOf(',', actionIdx);
         int commaIdx2 = resp.indexOf(',', commaIdx1 + 1);
         if (commaIdx1 > 0 && commaIdx2 > commaIdx1) {
             statusCode = resp.substring(commaIdx1 + 1, commaIdx2).toInt();
@@ -355,22 +349,25 @@ bool CellularModule::httpsPost(const char* url, const char* contentType, const c
 
     DEBUG_PRINTF("HTTP Status: %d\n", statusCode);
 
-    // Read response body
+    // Read response body if successful
     if (statusCode >= 200 && statusCode < 300) {
-        resp = sendATCommand("AT+SHREAD=0,1024", 5000);
-        int readIdx = resp.indexOf("+SHREAD:");
+        resp = sendATCommand("AT+HTTPREAD=0,1024", 5000);
+        int readIdx = resp.indexOf("+HTTPREAD:");
         if (readIdx >= 0) {
+            // Find the data after the length line
             int dataStart = resp.indexOf('\n', readIdx) + 1;
             int dataEnd = resp.indexOf("\r\nOK", dataStart);
+            if (dataEnd < 0) dataEnd = resp.length();
             if (dataEnd > dataStart) {
                 response = resp.substring(dataStart, dataEnd);
                 response.trim();
             }
         }
+        DEBUG_PRINTF("Response: %s\n", response.c_str());
     }
 
-    // Disconnect
-    sendATCommand("AT+SHDISC", 1000);
+    // Terminate HTTP session
+    sendATCommand("AT+HTTPTERM", 1000);
 
     DEBUG_PRINTF("POST %s -> %d\n", url, statusCode);
 
