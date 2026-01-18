@@ -335,7 +335,24 @@ bool CellularModule::httpsPost(const char* url, const char* contentType, const c
     }
 
     // Execute POST request (action 1 = POST)
-    resp = sendATCommand("AT+HTTPACTION=1", 60000);
+    // HTTPACTION is async: returns "OK" immediately, then "+HTTPACTION: 1,<status>,<len>" later
+    modemSerial->println("AT+HTTPACTION=1");
+    DEBUG_PRINTLN("AT> AT+HTTPACTION=1");
+
+    // Wait specifically for +HTTPACTION response (not just OK)
+    resp = "";
+    uint32_t actionStart = millis();
+    while (millis() - actionStart < 60000) {
+        while (modemSerial->available()) {
+            char c = modemSerial->read();
+            resp += c;
+        }
+        if (resp.indexOf("+HTTPACTION:") >= 0) {
+            break;
+        }
+        delay(100);
+    }
+    DEBUG_PRINTF("AT< %s\n", resp.c_str());
 
     // Parse response: +HTTPACTION: 1,<status>,<data_length>
     int actionIdx = resp.indexOf("+HTTPACTION:");
