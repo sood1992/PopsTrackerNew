@@ -61,8 +61,9 @@
 // GPS MODULE (L76K) - Onboard GPS via UART
 // ============================================================================
 // Note: L76K GPS uses GPIO 21/22, so I2C must use alternative pins
-#define GPS_TX              21      // ESP32 RX <- GPS TX (receive from GPS)
-#define GPS_RX              22      // ESP32 TX -> GPS RX (send to GPS)
+// Per LILYGO T-A7670G R2 schematic:
+#define GPS_TX              21      // ESP32 TX -> GPS RX (send commands to GPS)
+#define GPS_RX              22      // ESP32 RX <- GPS TX (receive NMEA from GPS)
 #define GPS_BAUD            9600    // L76K default baud rate
 #define SerialGPS           Serial2
 

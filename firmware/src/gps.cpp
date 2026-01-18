@@ -27,11 +27,11 @@ GPSModule::GPSModule() :
 bool GPSModule::begin() {
     DEBUG_PRINTLN("Initializing GPS module (L76K)...");
 
-    // Initialize GPS serial on GPIO 16 (RX) and GPIO 17 (TX)
-    // Note: For L76K onboard, the pins are actually:
-    // ESP32 RX (GPIO 21) <- L76K TX
-    // ESP32 TX (GPIO 22) -> L76K RX
-    gpsSerial->begin(GPS_BAUD, SERIAL_8N1, GPS_TX, GPS_RX);
+    // Initialize GPS serial for L76K onboard GPS
+    // Per LILYGO T-A7670G R2 pinout:
+    // ESP32 RX (GPIO 22) <- L76K TX (receive GPS data)
+    // ESP32 TX (GPIO 21) -> L76K RX (send commands to GPS)
+    gpsSerial->begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
 
     // Wait for GPS to initialize
     delay(1000);

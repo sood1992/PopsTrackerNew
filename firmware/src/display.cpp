@@ -213,21 +213,25 @@ void DisplayModule::showError(const char* error) {
 }
 
 void DisplayModule::drawBattery(int x, int y, uint8_t percent, bool charging) {
-    // Battery outline (20x8)
-    u8g2->drawFrame(x, y, 20, 8);
-    u8g2->drawBox(x + 20, y + 2, 2, 4);  // Tip
+    // Battery outline (16x8)
+    u8g2->drawFrame(x, y, 16, 8);
+    u8g2->drawBox(x + 16, y + 2, 2, 4);  // Tip
 
     // Fill based on percentage
-    int fillWidth = (percent * 16) / 100;
+    int fillWidth = (percent * 12) / 100;
     if (fillWidth > 0) {
         u8g2->drawBox(x + 2, y + 2, fillWidth, 4);
     }
 
-    // Charging indicator
+    // Battery percentage text
+    u8g2->setFont(u8g2_font_5x7_tr);
+    char pctStr[8];
     if (charging) {
-        u8g2->setFont(u8g2_font_helvR08_tr);
-        u8g2->drawStr(x + 24, y + 8, "+");
+        snprintf(pctStr, sizeof(pctStr), "%d%%+", percent);
+    } else {
+        snprintf(pctStr, sizeof(pctStr), "%d%%", percent);
     }
+    u8g2->drawStr(x + 20, y + 7, pctStr);
 }
 
 void DisplayModule::drawSignal(int x, int y, int strength) {
